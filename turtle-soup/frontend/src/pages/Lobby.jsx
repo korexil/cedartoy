@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { api, getToken, post } from '../api'
+import { api, ensureGuestToken, post } from '../api'
 import Leaderboard from '../components/Leaderboard.jsx'
 
 export default function Lobby() {
@@ -11,9 +11,16 @@ export default function Lobby() {
   const [generated, setGenerated] = useState(null)
   const [cooldown, setCooldown] = useState(0)
   const [error, setError] = useState('')
-  const authed = getToken()
 
-  const load = () => authed ? api('/rooms/').then(setRooms).catch(() => nav('/login')) : nav('/login')
+  const load = async () => {
+    try {
+      await ensureGuestToken()
+      setRooms(await api('/rooms/'))
+    } catch (e) {
+      setError(e.message)
+      nav('/login')
+    }
+  }
   useEffect(() => { load() }, [])
   useEffect(() => {
     if (cooldown <= 0) return

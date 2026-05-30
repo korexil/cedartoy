@@ -1,0 +1,1611 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>CEDAR TOY</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #FDF6F7;
+      --purple: #BEB1D1;
+      --purple-dark: #9B8DB5;
+      --purple-darker: #8678A0;
+      --purple-light: #E6DFF0;
+      --pink: #E6A8B1;
+      --pink-dark: #C28B93;
+      --text: #5C5463;
+      --muted: #9ca3af;
+      --screen-bg: #2D2D2D;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --browser-bottom: 0px;
+      --mobile-nav-height: 58px;
+      --mobile-nav-total: calc(var(--mobile-nav-height) + var(--safe-bottom) + var(--browser-bottom));
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow: hidden;
+      color: var(--text);
+      font-family: "Silkscreen", cursive;
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(rgba(190, 177, 209, 0.1) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(190, 177, 209, 0.1) 1px, transparent 1px);
+      background-size: 20px 20px;
+      image-rendering: pixelated;
+    }
+
+    button, input {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .topbar {
+      background: var(--purple);
+      border-bottom: 4px solid var(--purple-dark);
+      color: #fff;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 10px 24px;
+      min-height: 58px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 24px;
+      letter-spacing: 1px;
+      color: #fff;
+      text-decoration: none;
+      min-width: 0;
+    }
+
+    .pixel-logo {
+      width: 24px;
+      height: 18px;
+      border: 4px solid #fff;
+      box-shadow: 8px 8px 0 -4px #fff;
+      flex: none;
+    }
+
+    .top-actions, .status-strip, .auth-area, .user-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .stat {
+      color: #fff;
+      background: transparent;
+      padding: 0;
+      border: 0;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+
+    .stat b { color: #fff; }
+    .dot { color: #86efac; }
+
+    .pixel-btn {
+      border: 0;
+      color: #fff;
+      background: var(--pink);
+      border-right: 4px solid var(--pink-dark);
+      border-bottom: 4px solid var(--pink-dark);
+      padding: 10px 16px;
+      min-height: 42px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .pixel-btn:active {
+      transform: translate(3px, 3px);
+      border-right-width: 2px;
+      border-bottom-width: 2px;
+    }
+
+    .pixel-btn.secondary {
+      color: var(--purple-dark);
+      background: #fff;
+      border: 3px solid var(--purple);
+      box-shadow: 4px 4px 0 rgba(190, 177, 209, 0.4);
+      min-height: 38px;
+      padding: 8px 12px;
+    }
+
+    .user-name {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #fff;
+      max-width: 190px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: minmax(300px, 32%) 1fr;
+      gap: 28px;
+      min-height: 0;
+      padding: 20px 28px;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 16px;
+    }
+
+    .search {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 12px;
+      background: white;
+      border: 4px solid var(--purple);
+      box-shadow: 4px 4px 0 rgba(190, 177, 209, 0.4);
+      padding: 14px 16px;
+    }
+
+    .search input {
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      color: var(--text);
+      background: transparent;
+      font-size: 15px;
+    }
+
+    .search input::placeholder { color: var(--muted); }
+    .search-mark { color: var(--purple-dark); font-size: 24px; }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .tab-button {
+      border: 4px solid var(--purple);
+      color: var(--purple-darker);
+      background: white;
+      padding: 14px 8px;
+      text-transform: uppercase;
+      min-height: 58px;
+      font-size: 19px;
+    }
+
+    .tab-button.active {
+      color: #fff;
+      background: var(--purple-darker);
+      border-color: var(--purple-darker);
+    }
+
+    .games {
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding-right: 6px;
+    }
+
+    .game-card {
+      width: 100%;
+      text-align: left;
+      background: white;
+      color: var(--text);
+      border: 4px solid var(--purple);
+      box-shadow: 4px 4px 0px rgba(190, 177, 209, 0.4);
+      padding: 14px 16px;
+      display: grid;
+      grid-template-columns: 62px 1fr auto;
+      gap: 14px;
+      align-items: start;
+      min-height: 128px;
+      position: relative;
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+
+    .game-card::after {
+      content: "";
+      position: absolute;
+      inset: 2px;
+      border: 2px solid var(--purple-light);
+      pointer-events: none;
+    }
+
+    .game-card:hover:not(.locked) {
+      transform: translate(-2px, -2px);
+      box-shadow: 6px 6px 0px rgba(190, 177, 209, 0.4);
+    }
+
+    .game-card.selected {
+      border-color: var(--pink);
+      box-shadow: 4px 4px 0px rgba(230, 168, 177, 0.5);
+    }
+
+    .game-card.selected::after { border-color: rgba(230, 168, 177, 0.25); }
+    .game-card.locked {
+      background: #f9fafb;
+      border-style: dashed;
+      cursor: not-allowed;
+      opacity: 0.65;
+    }
+
+    .game-card.hidden { display: none; }
+
+    .locked-inner {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 86px;
+      color: #9ca3af;
+      text-align: center;
+    }
+
+    .game-card .glyph, .art-glyph {
+      width: 58px;
+      height: 58px;
+      border: 2px solid var(--purple-light);
+      background: #f9fafb;
+      display: grid;
+      place-items: center;
+      color: var(--purple-dark);
+      font-size: 28px;
+    }
+
+    .game-title {
+      margin: 0 0 6px;
+      color: var(--purple);
+      font-size: 19px;
+      line-height: 1.2;
+      letter-spacing: 1px;
+    }
+
+    .game-card.selected .game-title, .game-card:hover .game-title { color: var(--pink); }
+    .game-sub { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .level { color: var(--purple); font-size: 10px; white-space: nowrap; }
+    .card-enter {
+      grid-column: 3;
+      justify-self: end;
+      align-self: end;
+      color: var(--pink);
+      font-size: 9px;
+      opacity: 0.72;
+    }
+    .game-card:hover .card-enter,
+    .game-card.selected .card-enter {
+      opacity: 1;
+    }
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tag {
+      color: var(--purple-dark);
+      background: var(--purple-light);
+      border: 1px solid var(--purple);
+      padding: 4px 7px;
+      font-size: 10px;
+    }
+    .tag.pink {
+      color: var(--pink-dark);
+      background: rgba(230, 168, 177, 0.12);
+      border-color: var(--pink);
+    }
+
+    .preview {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .panel-tabs {
+      display: flex;
+      align-items: end;
+      gap: 4px;
+      padding: 0 16px;
+    }
+
+    .panel-tab {
+      border: 4px solid var(--purple);
+      border-bottom: 0;
+      background: var(--purple-light);
+      color: var(--purple-darker);
+      padding: 8px 18px;
+      min-width: 110px;
+      text-align: center;
+      font-size: 9px;
+    }
+
+    .panel-tab.active {
+      color: var(--purple);
+      background: #fff;
+    }
+
+    .machine {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 1fr auto;
+      background: var(--purple);
+      border: 6px solid var(--purple-dark);
+      box-shadow: 8px 8px 0px var(--purple-darker), inset 4px 4px 0px #D7CCE6;
+      padding: 16px;
+      gap: 14px;
+    }
+
+    .screen {
+      position: relative;
+      overflow: hidden;
+      min-height: 0;
+      background: var(--screen-bg);
+      border: 4px solid #1A1A1A;
+      box-shadow: 0 0 24px rgba(190, 177, 209, 0.25);
+      color: rgba(255,255,255,0.72);
+      padding: 20px 28px;
+    }
+
+    .screen::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.22) 50%),
+        linear-gradient(90deg, rgba(255,0,0,0.06), rgba(0,255,0,0.02), rgba(0,0,118,0.06));
+      background-size: 100% 4px, 3px 100%;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .screen-inner {
+      position: relative;
+      z-index: 11;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .screen-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: start;
+      margin-bottom: 24px;
+    }
+
+    .mission {
+      margin: 0;
+      color: var(--pink);
+      font-size: 18px;
+      line-height: 1.2;
+      letter-spacing: -0.04em;
+    }
+
+    .location, .cases-label, .desc, .rank-list {
+      color: rgba(255,255,255,0.62);
+      line-height: 1.8;
+    }
+
+    .cases {
+      text-align: right;
+      color: #fff;
+      flex: none;
+    }
+
+    .cases-label { font-size: 10px; }
+    .cases-num { font-size: 22px; line-height: 1; }
+
+    .screen-body {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      gap: 32px;
+      align-items: center;
+    }
+
+    .art {
+      width: 140px;
+      height: 140px;
+      background: #404040;
+      border: 4px solid var(--pink);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .art-badge {
+      position: absolute;
+      top: -14px;
+      left: -4px;
+      background: var(--pink);
+      color: #fff;
+      padding: 2px 8px;
+      font-size: 9px;
+    }
+
+    .art-glyph {
+      border: 0;
+      background: transparent;
+      color: white;
+      opacity: 0.25;
+      font-size: 52px;
+    }
+
+    .art-dot {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 8px;
+      height: 8px;
+      background: var(--pink);
+    }
+
+    .info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .info h3 {
+      color: var(--pink);
+      border-bottom: 1px solid var(--pink);
+      display: inline-block;
+      margin: 0;
+      width: fit-content;
+      font-size: 18px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .desc { margin: 0; max-width: 760px; font-size: 15px; color: rgba(255,255,255,0.8); }
+    .rank-title { color: var(--pink); margin: 0; font-size: 17px; text-transform: uppercase; }
+    .rank-list {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 14px;
+    }
+
+    .rank-list li {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding-bottom: 4px;
+    }
+
+    .rank-list li.empty-rank {
+      grid-template-columns: 1fr;
+      color: rgba(255,255,255,0.55);
+    }
+
+    .bar {
+      height: 3px;
+      border: 0;
+      background: #222;
+      overflow: hidden;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      background: var(--purple);
+    }
+
+    .stat-bars {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .stat-item {
+      padding: 8px 10px;
+      background: #3a3a3a;
+      border-left: 4px solid var(--purple);
+    }
+
+    .stat-item.pink { border-color: var(--pink); }
+    .stat-label { font-size: 9px; color: var(--purple); margin-bottom: 4px; }
+    .stat-item.pink .stat-label { color: var(--pink); }
+    .stat-track { height: 3px; background: #222; }
+    .stat-fill { height: 100%; background: var(--purple); transition: width 0.4s ease; }
+    .stat-item.pink .stat-fill { background: var(--pink); }
+
+    .screen-footer {
+      margin-top: auto;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .screen-icons {
+      display: flex;
+      gap: 14px;
+      color: rgba(255,255,255,0.35);
+      font-size: 17px;
+    }
+
+    .screen-icons .lit { color: var(--pink); opacity: 1; }
+    .press-hint { font-size: 9px; color: white; animation: blink 1.4s infinite; }
+
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    .console {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--purple-dark);
+      border-top: 4px solid var(--purple-darker);
+      padding: 0 20px;
+      min-height: 64px;
+    }
+
+    .round {
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      background: var(--pink);
+      border: 4px solid var(--pink-dark);
+    }
+
+    .round.alt {
+      background: var(--purple-light);
+      border-color: var(--purple);
+    }
+
+    .slot {
+      width: 44px;
+      height: 14px;
+      background: var(--purple-darker);
+    }
+
+    .enter {
+      margin-left: auto;
+      font-size: 11px;
+      padding: 10px 24px;
+      min-width: 112px;
+      text-transform: uppercase;
+    }
+
+    .bottom-nav {
+      height: 82px;
+      border-top: 4px solid var(--purple);
+      background: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 42px;
+      padding: 10px 18px;
+    }
+
+    .nav-item {
+      border: 0;
+      background: transparent;
+      color: var(--purple);
+      display: grid;
+      place-items: center;
+      gap: 5px;
+      min-width: 76px;
+      text-decoration: none;
+    }
+
+    .nav-icon {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border: 4px solid currentColor;
+      background: #fff;
+      font-size: 22px;
+    }
+
+    .nav-item.active {
+      color: var(--pink);
+    }
+
+    .nav-item.active .nav-icon {
+      color: #fff;
+      background: var(--pink);
+      border-color: var(--pink);
+    }
+
+    .nav-label { font-size: 11px; }
+
+    .modal, .drawer-scrim {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: none;
+      background: rgba(92, 84, 99, 0.55);
+    }
+
+    .modal.show, .drawer-scrim.show { display: grid; }
+    .modal { place-items: center; padding: 18px; }
+
+    .modal-box {
+      width: min(420px, 100%);
+      background: var(--bg);
+      border: 4px solid var(--purple);
+      box-shadow: 8px 8px 0px var(--purple-dark);
+      padding: 24px;
+    }
+
+    .modal-title {
+      color: var(--pink);
+      font-size: 18px;
+      margin: 0 0 16px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 12px;
+      color: var(--purple-dark);
+      font-size: 11px;
+    }
+
+    .field input {
+      width: 100%;
+      min-height: 44px;
+      border: 4px solid var(--purple);
+      background: #fff;
+      color: var(--text);
+      padding: 9px 10px;
+      outline: 0;
+    }
+
+    .modal-hint {
+      margin: 0 0 12px;
+      color: var(--purple-darker);
+      font-size: 10px;
+      line-height: 1.6;
+    }
+
+    .field-hint {
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.5;
+    }
+
+    #loginModal .field input {
+      border: 4px solid #BEB1D1;
+    }
+
+    #loginModal .modal-actions .pixel-btn.secondary {
+      color: var(--purple-dark);
+      background: #fff;
+      border: 4px solid #BEB1D1;
+      border-right: 4px solid var(--purple-dark);
+      border-bottom: 4px solid var(--purple-dark);
+      box-shadow: none;
+      min-height: 42px;
+      padding: 10px 16px;
+    }
+
+    #loginModal .modal-actions .pixel-btn.secondary:active {
+      transform: translate(3px, 3px);
+      border-right-width: 2px;
+      border-bottom-width: 2px;
+    }
+
+    #loginModal #loginSubmit {
+      min-width: 96px;
+      text-transform: uppercase;
+    }
+
+    .modal-msg {
+      min-height: 20px;
+      color: var(--pink-dark);
+      font-size: 11px;
+      line-height: 1.6;
+      margin: 8px 0;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .mobile-only { display: none; }
+    .drawer-scrim {
+      align-items: end;
+      padding-bottom: calc(var(--safe-bottom) + var(--browser-bottom));
+    }
+
+    .drawer {
+      background: var(--bg);
+      border-top: 5px solid var(--purple-dark);
+      box-shadow: 0 -8px 0 rgba(90,75,104,0.16);
+      padding: 18px;
+      max-height: calc(78vh - var(--safe-bottom) - var(--browser-bottom));
+      overflow: auto;
+      transform: translateY(100%);
+      transition: transform 0.16s ease;
+    }
+
+    .drawer-scrim.show .drawer {
+      transform: translateY(0);
+    }
+
+    .drawer-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: start;
+      margin-bottom: 12px;
+    }
+
+    .drawer h2 {
+      color: var(--pink);
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    .drawer .location {
+      color: var(--purple-darker);
+      font-size: 11px;
+      line-height: 1.5;
+      letter-spacing: 0.02em;
+    }
+
+    .drawer-head .drawer-close {
+      flex: none;
+      width: auto;
+      min-width: 40px;
+      min-height: 40px;
+      padding: 0;
+      font-size: 22px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .drawer .desc {
+      color: var(--text);
+      margin-bottom: 14px;
+    }
+
+    .drawer-logs {
+      background: white;
+      border: 3px solid var(--purple);
+      box-shadow: 4px 4px 0 rgba(190, 177, 209, 0.32);
+      color: var(--text);
+      font-size: 11px;
+      line-height: 1.7;
+      margin-bottom: 14px;
+      padding: 10px 12px;
+    }
+
+    .drawer .rank-list {
+      color: var(--purple-darker);
+      margin-bottom: 16px;
+    }
+
+    .drawer .rank-list li.empty-rank {
+      color: var(--muted);
+    }
+
+    @media (max-width: 980px) {
+      .topbar { grid-template-columns: 1fr; }
+      .top-actions { justify-content: space-between; }
+      .main { grid-template-columns: 330px 1fr; padding: 20px; gap: 18px; }
+      .screen { padding: 26px; }
+      .screen-body { flex-direction: column; align-items: flex-start; }
+      .art-glyph { width: 82px; height: 82px; font-size: 42px; }
+      .slot { display: none; }
+    }
+
+    @media (max-width: 599px) {
+      body { overflow: hidden; }
+      .app {
+        min-height: 100dvh;
+        display: block;
+      }
+      .topbar {
+        min-height: 58px;
+        grid-template-columns: 1fr auto;
+        padding: 10px 14px;
+      }
+      .pixel-logo {
+        width: 20px;
+        height: 15px;
+        border-width: 3px;
+      }
+      .brand { font-size: 16px; gap: 9px; }
+      .top-actions { justify-content: end; }
+      .status-strip, .user-actions .desktop-only, .auth-area .desktop-only { display: none; }
+      .auth-area .pixel-btn {
+        min-height: 34px;
+        padding: 7px 11px;
+        font-size: 10px;
+      }
+      .user-name { max-width: 108px; font-size: 10px; }
+      .main {
+        display: block;
+        height: calc(100dvh - 58px - var(--mobile-nav-total));
+        padding: 18px 18px calc(14px + var(--mobile-nav-total));
+        overflow: auto;
+      }
+      .sidebar { display: grid; gap: 14px; }
+      .search {
+        border-width: 4px;
+        box-shadow: 4px 4px 0 rgba(190, 177, 209, 0.4);
+        padding: 10px 12px;
+      }
+      .search input { font-size: 13px; }
+      .search-mark { font-size: 19px; }
+      .tabs { gap: 10px; }
+      .tab-button {
+        min-height: 48px;
+        font-size: 15px;
+        padding: 10px 6px;
+      }
+      .games {
+        overflow: visible;
+        padding: 0 0 10px;
+        gap: 14px;
+      }
+      .game-card {
+        grid-template-columns: 52px 1fr auto;
+        min-height: 112px;
+        padding: 14px 14px;
+        gap: 10px;
+      }
+      .game-card .glyph {
+        width: 50px;
+        height: 50px;
+        font-size: 23px;
+      }
+      .game-title { font-size: 16px; margin-bottom: 4px; }
+      .game-sub { font-size: 10px; margin-bottom: 8px; }
+      .level { font-size: 9px; }
+      .card-enter { font-size: 8px; }
+      .tag { font-size: 9px; padding: 3px 6px; }
+      .preview { display: none; }
+      .bottom-nav {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 40;
+        height: var(--mobile-nav-total);
+        min-height: var(--mobile-nav-height);
+        box-sizing: border-box;
+        justify-content: stretch;
+        gap: 0;
+        padding: 0 0 calc(var(--safe-bottom) + var(--browser-bottom));
+      }
+      .nav-item {
+        flex: 1;
+        min-width: 0;
+        height: 100%;
+        border-left: 1px solid var(--purple-light);
+      }
+      .nav-item:first-child { border-left: 0; }
+      .nav-icon {
+        width: auto;
+        height: auto;
+        border: 0;
+        background: transparent;
+        font-size: 20px;
+      }
+      .nav-item.active {
+        background: var(--pink);
+        color: #fff;
+      }
+      .nav-item.active .nav-icon {
+        background: transparent;
+        border: 0;
+      }
+      .nav-label { font-size: 9px; }
+      body.searching .bottom-nav { display: none; }
+      body.searching .main {
+        height: calc(100dvh - 58px - var(--safe-bottom) - var(--browser-bottom));
+        padding-bottom: calc(14px + var(--safe-bottom) + var(--browser-bottom));
+      }
+      .drawer {
+        max-height: calc(68dvh - var(--safe-bottom) - var(--browser-bottom));
+        padding: 14px;
+        border-top-width: 4px;
+      }
+      .drawer-head { margin-bottom: 8px; }
+      .drawer h2 { font-size: 18px; }
+      .drawer .desc { font-size: 12px; margin-bottom: 10px; }
+      .drawer-logs {
+        font-size: 10px;
+        line-height: 1.55;
+        margin-bottom: 10px;
+        padding: 8px 10px;
+      }
+      .drawer .rank-list { font-size: 12px; margin-bottom: 12px; }
+      .drawer .pixel-btn:not(.drawer-close) {
+        width: 100%;
+        min-height: 38px;
+        font-size: 11px;
+      }
+      .drawer-head .drawer-close {
+        min-width: 36px;
+        min-height: 36px;
+        font-size: 20px;
+      }
+      .modal { align-items: start; padding-top: 78px; }
+      .modal-box {
+        padding: 18px;
+        width: min(340px, calc(100vw - 34px));
+      }
+      .modal-title { font-size: 15px; margin-bottom: 12px; }
+      .modal-hint { font-size: 9px; margin-bottom: 10px; }
+      .field-hint { font-size: 8px; }
+      #loginModal .field input { min-height: 38px; border: 4px solid #BEB1D1; }
+      .field input { min-height: 38px; border-width: 3px; }
+      .drawer .pixel-btn:not(.drawer-close) { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="CEDAR TOY HOME"><span class="pixel-logo"></span><span>CEDAR TOY</span></a>
+      <div class="top-actions">
+        <div class="status-strip">
+          <span class="stat"><span class="dot">●</span> ONLINE: <b id="onlineCount">1204</b></span>
+          <span class="stat">ROOMS: <b id="roomCount">--</b></span>
+        </div>
+        <div class="auth-area" id="authArea">
+          <button class="pixel-btn" id="loginOpen">登录</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="sidebar" aria-label="游戏列表">
+        <label class="search">
+          <input id="searchInput" type="search" placeholder="搜索游戏..." autocomplete="off">
+          <span class="search-mark">⌕</span>
+        </label>
+
+        <div class="tabs" role="tablist" aria-label="游戏分类">
+          <button class="tab-button" data-filter="test" type="button">测试</button>
+          <button class="tab-button active" data-filter="mini" type="button">小游戏</button>
+        </div>
+
+        <div class="games" id="gameList"></div>
+      </section>
+
+      <section class="preview" aria-label="游戏详情">
+        <div class="panel-tabs">
+          <div class="panel-tab active">预览</div>
+          <div class="panel-tab">详情</div>
+        </div>
+        <div class="machine">
+          <div class="screen">
+            <div class="screen-inner">
+              <div class="screen-head">
+                <div>
+                  <h1 class="mission" id="detailMission"></h1>
+                  <div class="location" id="detailLocation"></div>
+                </div>
+                <div class="cases">
+                  <div class="cases-label" id="detailMetricLabel"></div>
+                  <div class="cases-num" id="detailMetric"></div>
+                </div>
+              </div>
+              <div class="screen-body">
+                <div class="art">
+                  <div class="art-badge" id="detailBadge"></div>
+                  <div class="art-glyph" id="detailGlyph"></div>
+                  <div class="art-dot"></div>
+                </div>
+                <div class="info">
+                  <h3>状态日志</h3>
+                  <p class="desc" id="detailDesc"></p>
+                  <div class="stat-bars">
+                    <div class="stat-item">
+                      <div class="stat-label" id="statOneLabel"></div>
+                      <div class="stat-track"><div class="stat-fill" id="statOneFill"></div></div>
+                    </div>
+                    <div class="stat-item pink">
+                      <div class="stat-label" id="statTwoLabel"></div>
+                      <div class="stat-track"><div class="stat-fill" id="statTwoFill"></div></div>
+                    </div>
+                  </div>
+                  <div class="rank-title">排行榜</div>
+                  <ol class="rank-list" id="rankList"></ol>
+                </div>
+              </div>
+              <div class="screen-footer">
+                <div class="screen-icons">
+                  <span id="screenIconOne"></span>
+                  <span id="screenIconTwo"></span>
+                  <span id="screenIconThree"></span>
+                </div>
+                <div class="press-hint">PRESS START TO CONTINUE_</div>
+              </div>
+            </div>
+          </div>
+          <div class="console">
+            <div class="round"></div>
+            <div class="round alt"></div>
+            <div class="slot"></div>
+            <button class="pixel-btn enter" id="enterButton">ENTER →</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="底部导航">
+      <button class="nav-item active" data-bottom-action="leaderboard" type="button"><span class="nav-icon">▥</span><span class="nav-label">排行榜</span></button>
+      <button class="nav-item" data-bottom-action="history" type="button"><span class="nav-icon">◴</span><span class="nav-label">历史</span></button>
+      <button class="nav-item" data-bottom-action="mine" type="button"><span class="nav-icon">☻</span><span class="nav-label">我的</span></button>
+    </nav>
+  </div>
+
+  <div class="modal" id="loginModal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+    <div class="modal-box">
+      <h2 class="modal-title" id="loginTitle">登录 / 注册</h2>
+      <p class="modal-hint">没有账号？输入用户名和密码直接注册</p>
+      <label class="field">
+        用户名
+        <input id="loginUser" type="text" maxlength="20" autocomplete="username">
+        <span class="field-hint">2-20 个字符，仅支持字母、数字、下划线、中文</span>
+      </label>
+      <label class="field">
+        密码
+        <input id="loginPass" type="password" autocomplete="current-password">
+        <span class="field-hint">至少 6 位</span>
+      </label>
+      <div class="modal-msg" id="loginMsg"></div>
+      <div class="modal-actions">
+        <button class="pixel-btn secondary" data-close-modal type="button">取消</button>
+        <button class="pixel-btn" id="loginSubmit" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="bindModal" role="dialog" aria-modal="true" aria-labelledby="bindTitle">
+    <div class="modal-box">
+      <h2 class="modal-title" id="bindTitle">绑定 AI</h2>
+      <label class="field">绑定码<input id="bindToken" type="text" autocomplete="off"></label>
+      <div class="modal-msg" id="bindMsg"></div>
+      <div class="modal-actions">
+        <button class="pixel-btn secondary" data-close-modal type="button">取消</button>
+        <button class="pixel-btn" id="bindSubmit" type="button">绑定</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer-scrim" id="gameDrawer">
+    <section class="drawer" aria-label="游戏详情抽屉">
+      <div class="drawer-head">
+        <div>
+          <h2 id="drawerTitle"></h2>
+          <div class="location" id="drawerLocation"></div>
+        </div>
+        <button class="pixel-btn secondary drawer-close" id="drawerClose" type="button" aria-label="关闭">×</button>
+      </div>
+      <p class="desc" id="drawerDesc"></p>
+      <div class="drawer-logs" id="drawerLogs"></div>
+      <ol class="rank-list" id="drawerRanks"></ol>
+      <button class="pixel-btn" id="drawerEnter" type="button">ENTER →</button>
+    </section>
+  </div>
+
+  <div class="drawer-scrim" id="mineDrawer">
+    <section class="drawer" aria-label="我的">
+      <div class="drawer-head">
+        <h2>我的</h2>
+        <button class="pixel-btn secondary drawer-close" id="mineClose" type="button" aria-label="关闭">×</button>
+      </div>
+      <div id="mineContent"></div>
+    </section>
+  </div>
+
+  <script>
+    const TOKEN_KEY = "cedartoy_token";
+    const SOUP_TOKEN_KEY = "turtle_soup_token";
+
+    const games = [
+      {
+        id: "soup",
+        category: "mini",
+        name: "海龟汤",
+        mission: "MISSION: MYSTERY",
+        location: "LOCATION: ECHO CHAMBER",
+        glyph: "?",
+        badge: "SOUP",
+        level: "LV.09",
+        metricLabel: "对局数",
+        metric: "00482",
+        short: "横向思维 / 推理游戏",
+        desc: "横向思维推理游戏。进入房间后向主持人提问，用是、否、无关逐步还原谜底。",
+        logs: ["汤面已就绪，等待侦探入场...", "裁判 LLM 在线，回答精准。", "提示系统待机，30题后触发。"],
+        stats: [["PUZZLE", "85%"], ["MYSTERY", "72%"]],
+        footerIcons: ["◌", "□", "⚡"],
+        tags: ["黑汤", "红汤", "本格"],
+        url: "/soup/",
+        ranks: []
+      },
+      {
+        id: "mbti",
+        category: "test",
+        name: "MBTI 人格",
+        mission: "MISSION: MIND SCAN",
+        location: "LOCATION: PSYCHE TERMINAL",
+        glyph: "♧",
+        badge: "MBTI",
+        level: "LV.04",
+        metricLabel: "类型数",
+        metric: "00016",
+        short: "自我探索 / 测试",
+        desc: "快速人格扫描，围绕偏好、决策和能量来源生成 16 型人格结果。",
+        logs: ["人格扫描仪已就绪...", "16型人格测试，4种模式可选。", "分析完成后生成专属档案。"],
+        stats: [["LOGIC", "78%"], ["INSTINCT", "90%"]],
+        footerIcons: ["♧", "▥", "☆"],
+        tags: ["16型人格", "科学性"],
+        url: "/mbti",
+        ranks: []
+      },
+      {
+        id: "dnd",
+        category: "test",
+        name: "DND 阵营",
+        mission: "MISSION: ALIGNMENT",
+        location: "LOCATION: CHAOS FRONTIER",
+        glyph: "⚔",
+        badge: "DND",
+        level: "LV.02",
+        metricLabel: "对局数",
+        metric: "00036",
+        short: "道德矩阵 / 阵营测试",
+        desc: "用守序与混乱、善良与邪恶两条轴线判断你的 DND 阵营归属。",
+        logs: ["阵营测试仪启动...", "守序 / 混乱 × 善良 / 邪恶矩阵。", "36道题决定你的阵营归属。"],
+        stats: [["ORDER", "60%"], ["CHAOS", "55%"]],
+        footerIcons: ["⚔", "□", "⚖"],
+        tags: ["守序/混乱", "善良/邪恶"],
+        url: "/dnd",
+        ranks: []
+      }
+    ];
+
+    let selected = "soup";
+    let filter = "mini";
+    let me = null;
+
+    const $ = (id) => document.getElementById(id);
+
+    function token() {
+      return localStorage.getItem(TOKEN_KEY) || "";
+    }
+
+    function headers(json) {
+      return {
+        ...(json ? {"Content-Type": "application/json"} : {}),
+        ...(token() ? {Authorization: `Bearer ${token()}`} : {})
+      };
+    }
+
+    function currentGame() {
+      return games.find((game) => game.id === selected) || games[0];
+    }
+
+    function rankHtml(ranks) {
+      if (!ranks || ranks.length === 0) {
+        return `<li class="empty-rank"><span>暂无数据</span></li>`;
+      }
+      return ranks.map((rank, index) => {
+        const label = rank.label || rank.username || rank[1] || "玩家";
+        const score = rank.score ?? rank[2] ?? "";
+        const width = Math.max(24, 92 - index * 12);
+        return `<li><span>${index + 1}</span><span class="bar"><span style="width:${width}%"></span></span><span>${label} ${score}</span></li>`;
+      }).join("");
+    }
+
+    async function loadLeaderboard(gameId) {
+      const game = games.find((item) => item.id === gameId);
+      if (!game) return;
+      if (game.id !== "soup") {
+        game.ranks = [];
+        if (selected === game.id) renderRanks(game);
+        return;
+      }
+      try {
+        const soupToken = localStorage.getItem(SOUP_TOKEN_KEY) || "";
+        const res = await fetch("/soup/api/leaderboard/games", {
+          headers: soupToken ? {Authorization: `Bearer ${soupToken}`} : {}
+        });
+        if (!res.ok) throw new Error("leaderboard unavailable");
+        const rows = await res.json();
+        game.ranks = Array.isArray(rows)
+          ? rows.filter((row) => Number(row.score) > 0).slice(0, 5)
+          : [];
+      } catch (err) {
+        game.ranks = [];
+      }
+      if (selected === game.id) renderRanks(game);
+    }
+
+    function renderRanks(game) {
+      $("rankList").innerHTML = rankHtml(game.ranks);
+      if ($("gameDrawer").classList.contains("show")) {
+        $("drawerRanks").innerHTML = rankHtml(game.ranks);
+      }
+    }
+
+    const lockedPlaceholders = {
+      mini: { title: "神秘新游戏" },
+      test: { title: "神秘新测试" }
+    };
+
+    function renderGames() {
+      const query = $("searchInput").value.trim().toLowerCase();
+      $("gameList").innerHTML = games.map((game) => {
+        const searchable = `${game.name} ${game.short} ${game.tags.join(" ")}`.toLowerCase();
+        const hidden = game.category !== filter || (query && !searchable.includes(query));
+        const tags = game.tags.map((tag, index) => `<span class="tag ${index === 0 ? "pink" : ""}">${tag}</span>`).join("");
+        return `
+          <button class="game-card ${game.id === selected ? "selected" : ""} ${hidden ? "hidden" : ""}" data-game="${game.id}" type="button">
+            <span class="glyph">${game.glyph}</span>
+            <span>
+              <h2 class="game-title">${game.name}</h2>
+              <p class="game-sub">${game.short}</p>
+              <span class="tags">${tags}</span>
+            </span>
+            <span class="level">${game.level}</span>
+            <span class="card-enter">ENTER →</span>
+          </button>
+        `;
+      }).join("");
+      if (!query && lockedPlaceholders[filter]) {
+        const locked = lockedPlaceholders[filter];
+        $("gameList").insertAdjacentHTML("beforeend", `
+          <button class="game-card locked" type="button" aria-disabled="true">
+            <span class="locked-inner">
+              <span style="font-size:28px;color:var(--purple);opacity:0.45">▣</span>
+              <span style="font-size:11px;font-weight:bold;letter-spacing:0.1em">${locked.title}</span>
+              <span style="font-size:8px;color:#d1d5db">INSERT COIN TO UNLOCK</span>
+            </span>
+          </button>
+        `);
+      }
+      document.querySelectorAll(".game-card[data-game]").forEach((card) => {
+        card.addEventListener("mouseenter", () => previewGame(card.dataset.game));
+        card.addEventListener("focus", () => previewGame(card.dataset.game));
+        card.addEventListener("click", () => {
+          if (window.matchMedia("(max-width: 599px)").matches) {
+            selectGame(card.dataset.game, true);
+          } else {
+            enterGameById(card.dataset.game);
+          }
+        });
+      });
+    }
+
+    function renderDetail() {
+      const game = currentGame();
+      $("detailMission").textContent = game.mission;
+      $("detailLocation").textContent = game.location;
+      $("detailMetricLabel").textContent = game.metricLabel;
+      $("detailMetric").textContent = game.metric;
+      $("detailBadge").textContent = game.badge;
+      $("detailGlyph").textContent = game.glyph;
+      $("detailDesc").innerHTML = game.logs.map((line) => `&gt; ${line}`).join("<br>");
+      $("statOneLabel").textContent = game.stats[0][0];
+      $("statOneFill").style.width = game.stats[0][1];
+      $("statTwoLabel").textContent = game.stats[1][0];
+      $("statTwoFill").style.width = game.stats[1][1];
+      $("screenIconOne").className = "lit";
+      $("screenIconTwo").className = "";
+      $("screenIconThree").className = "";
+      $("screenIconOne").textContent = game.footerIcons[0];
+      $("screenIconTwo").textContent = game.footerIcons[1];
+      $("screenIconThree").textContent = game.footerIcons[2];
+      renderRanks(game);
+      loadLeaderboard(game.id);
+    }
+
+    function selectGame(id, maybeDrawer) {
+      if (!games.some((game) => game.id === id)) return;
+      selected = id;
+      renderGames();
+      renderDetail();
+      if (maybeDrawer && window.matchMedia("(max-width: 599px)").matches) openGameDrawer();
+    }
+
+    function previewGame(id) {
+      if (!games.some((game) => game.id === id)) return;
+      selected = id;
+      document.querySelectorAll(".game-card[data-game]").forEach((card) => {
+        card.classList.toggle("selected", card.dataset.game === id);
+      });
+      renderDetail();
+    }
+
+    function enterGame() {
+      window.location.href = currentGame().url;
+    }
+
+    function enterGameById(id) {
+      const game = games.find((item) => item.id === id);
+      if (!game) return;
+      selected = id;
+      window.location.href = game.url;
+    }
+
+    function openGameDrawer() {
+      const game = currentGame();
+      $("drawerTitle").textContent = game.name;
+      $("drawerLocation").textContent = game.short;
+      $("drawerDesc").textContent = game.desc;
+      $("drawerLogs").innerHTML = game.logs.map((line) => `&gt; ${line}`).join("<br>");
+      $("drawerRanks").innerHTML = rankHtml(game.ranks);
+      loadLeaderboard(game.id);
+      $("gameDrawer").classList.add("show");
+    }
+
+    function closeDrawers() {
+      $("gameDrawer").classList.remove("show");
+      $("mineDrawer").classList.remove("show");
+    }
+
+    function openModal(id) {
+      $(id).classList.add("show");
+    }
+
+    function closeModals() {
+      document.querySelectorAll(".modal").forEach((modal) => modal.classList.remove("show"));
+    }
+
+    function renderAuth() {
+      const area = $("authArea");
+      if (!me) {
+        area.innerHTML = `<button class="pixel-btn" id="loginOpen" type="button">登录</button>`;
+        $("loginOpen").addEventListener("click", () => openModal("loginModal"));
+        return;
+      }
+      area.innerHTML = `
+        <span class="user-name">● ${me.user.username}</span>
+        <span class="user-actions">
+          <a class="pixel-btn secondary desktop-only" href="/soup/profile">历史</a>
+          <button class="pixel-btn secondary desktop-only" id="bindOpen" type="button">绑定</button>
+          <button class="pixel-btn secondary desktop-only" id="logoutBtn" type="button">登出</button>
+        </span>
+      `;
+      $("bindOpen")?.addEventListener("click", () => openModal("bindModal"));
+      $("logoutBtn").addEventListener("click", logout);
+    }
+
+    function renderMine() {
+      const content = $("mineContent");
+      if (!me) {
+        content.innerHTML = `
+          <p class="desc">当前未登录。</p>
+          <p class="modal-hint">没有账号？输入用户名和密码直接注册</p>
+          <button class="pixel-btn" id="mineLogin" type="button">登录</button>
+        `;
+        $("mineLogin").addEventListener("click", () => {
+          closeDrawers();
+          openModal("loginModal");
+        });
+        return;
+      }
+      const bindings = (me.bindings || []).map((user) => `<li><span>AI</span><span>${user.username}</span><span>BOUND</span></li>`).join("") || "<li><span>--</span><span>暂无绑定</span><span>--</span></li>";
+      content.innerHTML = `
+        <p class="desc">用户：${me.user.username}</p>
+        <ol class="rank-list">${bindings}</ol>
+        <button class="pixel-btn" id="mineBind" type="button">绑定</button>
+        <button class="pixel-btn secondary" id="mineLogout" type="button" style="margin-top:10px">登出</button>
+      `;
+      $("mineBind").addEventListener("click", () => {
+        closeDrawers();
+        openModal("bindModal");
+      });
+      $("mineLogout").addEventListener("click", logout);
+    }
+
+    async function loadMe() {
+      if (!token()) {
+        me = null;
+        renderAuth();
+        return;
+      }
+      try {
+        const res = await fetch("/api/auth/me", {headers: headers(false)});
+        if (!res.ok) throw new Error("auth failed");
+        me = await res.json();
+      } catch (err) {
+        localStorage.removeItem(TOKEN_KEY);
+        me = null;
+      }
+      renderAuth();
+    }
+
+    const USERNAME_RE = /^[a-zA-Z0-9_\u4e00-\u9fff]{2,20}$/;
+
+    function validateLoginInput(username, password) {
+      if (!username || !password) return "用户名和密码必填";
+      if (username.length < 2 || username.length > 20) return "用户名长度须为 2-20 个字符";
+      if (!USERNAME_RE.test(username)) return "用户名只能包含字母、数字、下划线和中文";
+      if (password.length < 6) return "密码至少 6 位";
+      return "";
+    }
+
+    async function login() {
+      $("loginMsg").textContent = "";
+      const username = $("loginUser").value.trim();
+      const password = $("loginPass").value;
+      const validationError = validateLoginInput(username, password);
+      if (validationError) {
+        $("loginMsg").textContent = validationError;
+        return;
+      }
+      try {
+        const res = await fetch("/api/auth/login_or_register", {
+          method: "POST",
+          headers: headers(true),
+          body: JSON.stringify({username, password})
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "登录失败");
+        localStorage.setItem(TOKEN_KEY, data.token);
+        me = {user: data.user, bindings: []};
+        closeModals();
+        renderAuth();
+      } catch (err) {
+        $("loginMsg").textContent = err.message;
+      }
+    }
+
+    async function bindAccount() {
+      $("bindMsg").textContent = "";
+      const binding_token = $("bindToken").value.trim();
+      if (!binding_token) {
+        $("bindMsg").textContent = "绑定码必填";
+        return;
+      }
+      try {
+        const res = await fetch("/api/auth/bind", {
+          method: "POST",
+          headers: headers(true),
+          body: JSON.stringify({binding_token})
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "绑定失败");
+        $("bindMsg").textContent = "绑定成功";
+        await loadMe();
+        setTimeout(closeModals, 500);
+      } catch (err) {
+        $("bindMsg").textContent = err.message;
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem(TOKEN_KEY);
+      me = null;
+      renderAuth();
+      renderMine();
+    }
+
+    async function loadRoomCount() {
+      try {
+        const soupToken = localStorage.getItem(SOUP_TOKEN_KEY) || "";
+        const res = await fetch("/soup/api/rooms/", {
+          headers: soupToken ? {Authorization: `Bearer ${soupToken}`} : {}
+        });
+        if (!res.ok) throw new Error("rooms unavailable");
+        const rooms = await res.json();
+        const active = Array.isArray(rooms)
+          ? rooms.filter((room) => room.status === "waiting" || room.status === "playing").length
+          : 0;
+        $("roomCount").textContent = String(active).padStart(2, "0");
+      } catch (err) {
+        $("roomCount").textContent = "--";
+      }
+    }
+
+    document.querySelectorAll(".tab-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        filter = button.dataset.filter;
+        document.querySelectorAll(".tab-button").forEach((item) => item.classList.toggle("active", item === button));
+        renderGames();
+      });
+    });
+    $("searchInput").addEventListener("input", renderGames);
+    $("searchInput").addEventListener("focus", () => document.body.classList.add("searching"));
+    $("searchInput").addEventListener("blur", () => document.body.classList.remove("searching"));
+    $("enterButton").addEventListener("click", enterGame);
+    $("drawerEnter").addEventListener("click", enterGame);
+    $("drawerClose").addEventListener("click", closeDrawers);
+    $("mineClose").addEventListener("click", closeDrawers);
+    $("gameDrawer").addEventListener("click", (event) => { if (event.target.id === "gameDrawer") closeDrawers(); });
+    $("mineDrawer").addEventListener("click", (event) => { if (event.target.id === "mineDrawer") closeDrawers(); });
+    $("loginSubmit").addEventListener("click", login);
+    $("bindSubmit").addEventListener("click", bindAccount);
+    document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeModals));
+    document.querySelectorAll(".modal").forEach((modal) => {
+      modal.addEventListener("click", (event) => { if (event.target === modal) closeModals(); });
+    });
+    document.querySelectorAll("[data-bottom-action]").forEach((item) => {
+      item.addEventListener("click", () => {
+        document.querySelectorAll("[data-bottom-action]").forEach((nav) => nav.classList.toggle("active", nav === item));
+        if (item.dataset.bottomAction === "leaderboard") openGameDrawer();
+        if (item.dataset.bottomAction === "history") window.location.href = "/soup/profile";
+        if (item.dataset.bottomAction === "mine") {
+          if (!me) {
+            closeDrawers();
+            openModal("loginModal");
+            return;
+          }
+          renderMine();
+          $("mineDrawer").classList.add("show");
+        }
+      });
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeModals();
+        closeDrawers();
+      }
+      if (event.key === "Enter" && $("loginModal").classList.contains("show")) login();
+    });
+
+    function syncViewportInsets() {
+      const vv = window.visualViewport;
+      if (!vv) return;
+      const inset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      document.documentElement.style.setProperty("--browser-bottom", `${inset}px`);
+    }
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", syncViewportInsets);
+      window.visualViewport.addEventListener("scroll", syncViewportInsets);
+      window.addEventListener("resize", syncViewportInsets);
+      syncViewportInsets();
+    }
+
+    renderGames();
+    renderDetail();
+    renderAuth();
+    loadMe();
+    loadRoomCount();
+  </script>
+</body>
+</html>

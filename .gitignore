@@ -10,3 +10,5 @@ package-lock.json
 # 设计导出实验文件
 variant-export*.html
 toy_index.html
+
+example/*

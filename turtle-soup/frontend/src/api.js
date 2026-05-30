@@ -4,6 +4,13 @@ export const getToken = () => localStorage.getItem(TOKEN_KEY) || ''
 export const setToken = (token) => localStorage.setItem(TOKEN_KEY, token)
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
 
+export async function ensureGuestToken() {
+  if (getToken()) return getToken()
+  const data = await post('/auth/guest')
+  setToken(data.token)
+  return data.token
+}
+
 export async function api(path, options = {}) {
   const headers = {
     ...(options.body ? { 'Content-Type': 'application/json' } : {}),
