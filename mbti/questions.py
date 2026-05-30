@@ -150,36 +150,18 @@ FULL_QUESTIONS = EI_QUESTIONS + SN_QUESTIONS + TF_QUESTIONS + JP_QUESTIONS
 SHORT_QUESTIONS = EI_QUESTIONS[:4] + SN_QUESTIONS[:4] + TF_QUESTIONS[:4] + JP_QUESTIONS[:4]
 
 
-VALID_MODES = ("short", "full", "short_fast", "full_fast")
+VALID_MODES = ("short", "full")
 
 MODE_QUESTION_TOTAL = {
     "short": 16,
-    "short_fast": 16,
     "full": 93,
-    "full_fast": 93,
 }
-
-FAST_MODES = frozenset({"short_fast", "full_fast"})
-FAST_BATCH_SIZE_MAX = 16
-
-
-def is_fast_mode(mode: str) -> bool:
-    return mode in FAST_MODES
-
-
-def fast_batch_size(mode: str) -> int:
-    """short_fast 一次 16 题答完；full_fast 每批最多 16 题。"""
-    if mode == "short_fast":
-        return 16
-    if mode == "full_fast":
-        return 16
-    raise ValueError("invalid fast mode")
 
 
 def get_questions(mode):
-    if mode in ("short", "short_fast"):
+    if mode == "short":
         return SHORT_QUESTIONS
-    if mode in ("full", "full_fast"):
+    if mode == "full":
         return FULL_QUESTIONS
     raise ValueError("invalid mode")
 

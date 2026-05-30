@@ -5,11 +5,8 @@ import time
 from datetime import datetime, timezone
 
 from .questions import (
-    FAST_BATCH_SIZE_MAX,
     VALID_MODES,
-    fast_batch_size,
     get_questions,
-    is_fast_mode,
 )
 from .scoring import format_result, format_stored_result, score_answers
 
@@ -37,7 +34,7 @@ TOOLS = [
                 "mode": {
                     "type": "string",
                     "enum": list(VALID_MODES),
-                    "description": "full 36题逐题；full_fast 36题一次性提交。",
+                    "description": "full 36题逐题。",
                 },
             },
             "required": ["player_id", "mode"],
@@ -63,29 +60,6 @@ TOOLS = [
                 },
             },
             "required": ["player_id", "answer"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "dnd_answer_batch",
-        "description": "快速模式专用：一次提交本批全部答案。answers 长度须等于本批题数，每项为 1-4。",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "player_id": {
-                    "type": "string",
-                    "description": "1-10位字母数字 ID。",
-                    "pattern": "^[a-zA-Z0-9]{1,10}$",
-                },
-                "answers": {
-                    "type": "array",
-                    "items": {"type": "integer", "minimum": 1, "maximum": 4},
-                    "minItems": 1,
-                    "maxItems": FAST_BATCH_SIZE_MAX,
-                    "description": "本批每题答案，顺序对应当前展示题目。",
-                },
-            },
-            "required": ["player_id", "answers"],
             "additionalProperties": False,
         },
     },
@@ -132,8 +106,6 @@ def handle_mcp(payload):
                     text = dnd_start(arguments)
                 elif name == "dnd_answer":
                     text = dnd_answer(arguments)
-                elif name == "dnd_answer_batch":
-                    text = dnd_answer_batch(arguments)
                 elif name == "dnd_get_result":
                     text = dnd_get_result(arguments)
                 else:
@@ -154,7 +126,7 @@ def dnd_start(arguments):
     player_id = _require_player_id(arguments)
     mode = arguments.get("mode")
     if mode not in VALID_MODES:
-        raise JsonRpcError(-32602, "mode 须为 full 或 full_fast。")
+        raise JsonRpcError(-32602, "mode 须为 full。")
 
     questions = get_questions(mode)
     total = len(questions)
@@ -183,8 +155,6 @@ def dnd_start(arguments):
             (player_id, GAME, mode, now, now),
         )
 
-    if is_fast_mode(mode):
-        return _format_fast_batch(mode, questions, 0, total)
     return _format_question(mode, questions, 0)
 
 
@@ -202,8 +172,6 @@ def dnd_answer(arguments):
         if row is None:
             _raise_no_active_session(conn, player_id)
         mode, current_question, answers_json = row
-        if is_fast_mode(mode):
-            raise JsonRpcError(-32602, f"{mode} 请使用 dnd_answer_batch 一次提交本批答案，不要用 dnd_answer。")
         questions = get_questions(mode)
         answers = json.loads(answers_json)
         if current_question != len(answers):
@@ -224,56 +192,6 @@ def dnd_answer(arguments):
         if next_question >= len(questions):
             return _finish_test(conn, player_id, mode, questions, answers, now)
     return _format_question(mode, questions, next_question)
-
-
-def dnd_answer_batch(arguments):
-    player_id = _require_player_id(arguments)
-    raw_answers = arguments.get("answers")
-    if not isinstance(raw_answers, list) or not raw_answers:
-        raise JsonRpcError(-32602, "answers must be a non-empty array")
-    answers_batch = [
-        _coerce_answer(item, "each answers item must be an integer from 1 to 4")
-        for item in raw_answers
-    ]
-
-    now = time.time()
-    with _connect() as conn:
-        _init_db(conn)
-        _cleanup_expired(conn, now)
-        row = conn.execute(
-            "SELECT mode, current_question, answers FROM test_sessions WHERE player_id = ? AND game = ?",
-            (player_id, GAME),
-        ).fetchone()
-        if row is None:
-            _raise_no_active_session(conn, player_id)
-        mode, current_question, answers_json = row
-        if not is_fast_mode(mode):
-            raise JsonRpcError(-32602, f"{mode} 请使用 dnd_answer 逐题提交，不要用 dnd_answer_batch。")
-        questions = get_questions(mode)
-        total = len(questions)
-        answers = json.loads(answers_json)
-        if current_question != len(answers):
-            current_question = len(answers)
-        if current_question >= total:
-            raise JsonRpcError(-32002, "当前 session 内题目已全部提交完毕，请勿重复提交。")
-
-        batch_size = min(fast_batch_size(mode), total - current_question)
-        if len(answers_batch) != batch_size:
-            raise JsonRpcError(-32602, f"本批须提交 {batch_size} 个答案（当前为 {len(answers_batch)}）")
-
-        answers.extend(answers_batch)
-        next_question = current_question + batch_size
-        conn.execute(
-            """
-            UPDATE test_sessions
-            SET current_question = ?, answers = ?, last_active = ?
-            WHERE player_id = ? AND game = ?
-            """,
-            (next_question, json.dumps(answers), now, player_id, GAME),
-        )
-        if next_question >= total:
-            return _finish_test(conn, player_id, mode, questions, answers, now)
-    return _format_fast_batch(mode, questions, next_question, total)
 
 
 def dnd_get_result(arguments):
@@ -338,28 +256,6 @@ def _format_question(mode, questions, index):
     for option in question["options"]:
         lines.append(f"{option['value']}. {option['text']}")
     lines.extend(["", "请用 dnd_answer 传入 answer：1、2、3 或 4。"])
-    return "\n".join(lines)
-
-
-def _format_fast_batch(mode, questions, start_index, total):
-    questions = _strip_scoring(questions)
-    remaining = total - start_index
-    per_batch = fast_batch_size(mode)
-    batch_size = min(per_batch, remaining)
-    end_index = start_index + batch_size
-    lines = []
-    if start_index == 0:
-        lines.append(f"【DND阵营测试开始 · {mode}模式 · 共{total}题 · 快速批量】")
-    else:
-        lines.append(f"【{mode} · 已完成 {start_index}/{total} 题】")
-    lines.extend(["", f"本批第 {start_index + 1}-{end_index} 题，请一次性提交 {batch_size} 个答案。", ""])
-    for idx in range(start_index, end_index):
-        question = questions[idx]
-        lines.extend([f"第{idx + 1}题 / 共{total}题", question["text"], ""])
-        for option in question["options"]:
-            lines.append(f"{option['value']}. {option['text']}")
-        lines.append("")
-    lines.append(f"请用 dnd_answer_batch 传入 answers（长度必须为 {batch_size}）：[{', '.join('?' for _ in range(batch_size))}]")
     return "\n".join(lines)
 
 
