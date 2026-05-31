@@ -5,7 +5,7 @@ import { api, ensureGuestToken, logoutToGuest } from './api'
 
 export default function App() {
   const location = useLocation()
-  const isLobby = location.pathname === '/'
+  const isLobby = location.pathname === '/' || location.pathname.startsWith('/room/')
   const [me, setMe] = useState(null)
   useEffect(() => {
     ensureGuestToken()

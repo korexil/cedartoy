@@ -9,6 +9,21 @@ from utils import clean_content
 router = APIRouter(prefix="/notes", tags=["notes"])
 
 
+async def _note_payload(note_id: int) -> dict:
+    note = await fetch_one(
+        """
+        SELECT rn.*, p.username, p.is_guest
+        FROM room_notes rn
+        LEFT JOIN players p ON p.id = rn.player_id
+        WHERE rn.id = ?
+        """,
+        (note_id,),
+    )
+    if note and not (note.get("username") or "").strip():
+        note["username"] = f"游客{note['player_id']}"
+    return note
+
+
 @router.post("/{room_id}")
 async def add_note(room_id: str, body: NoteBody, player: dict = Depends(current_player)):
     content = clean_content(body.content, 50)
@@ -16,7 +31,7 @@ async def add_note(room_id: str, body: NoteBody, player: dict = Depends(current_
         "INSERT INTO room_notes (room_id, player_id, content) VALUES (?, ?, ?)",
         (room_id, player["id"], content),
     )
-    note = await fetch_one("SELECT * FROM room_notes WHERE id = ?", (nid,))
+    note = await _note_payload(nid)
     await broadcast(room_id, "new_note", note)
     return note
 
@@ -33,7 +48,7 @@ async def update_note(note_id: int, body: NoteBody, player: dict = Depends(curre
         "UPDATE room_notes SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
         (content, note_id),
     )
-    note = await fetch_one("SELECT * FROM room_notes WHERE id = ?", (note_id,))
+    note = await _note_payload(note_id)
     await broadcast(note["room_id"], "update_note", note)
     return note
 

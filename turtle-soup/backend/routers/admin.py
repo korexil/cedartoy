@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from auth_utils import admin_player, verify_password
 from database import execute, fetch_all, fetch_one
+from judge import test_config
 from models import RoomCreateBody
 from utils import clean_content, room_id
 
@@ -467,6 +468,15 @@ async def delete_api_config(config_id: int, admin: dict = Depends(admin_player))
     del admin
     await execute("DELETE FROM judge_api_configs WHERE id = ?", (config_id,))
     return {"ok": True}
+
+
+@router.post("/api-configs/{config_id}/test")
+async def test_api_config(config_id: int, admin: dict = Depends(admin_player)):
+    del admin
+    cfg = await fetch_one("SELECT * FROM judge_api_configs WHERE id = ?", (config_id,))
+    if not cfg:
+        raise HTTPException(status_code=404, detail="配置不存在")
+    return await test_config(cfg)
 
 
 @router.get("/settings")

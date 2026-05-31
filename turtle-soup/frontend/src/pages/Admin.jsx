@@ -70,13 +70,13 @@ const tabDescriptions = {
   bans: '按 IP 封禁访问，命中后会阻止继续使用海龟汤。',
   reports: '玩家对房间发言或用户的举报记录。',
   flags: '系统或管理员标记的风险内容，用于后续处理。',
-  'api-configs': '裁判 LLM 的接口配置。优先级越小越靠前，停用后不会被调度。',
+  'api-configs': '裁判 LLM 的接口配置。按优先级排序后轮转调度；停用或连续失败 5 次后不会被调度。保存后可点「测试」探测连通性。',
   settings: '运行参数。修改后会影响新请求或后续流程。',
 }
 
 const settingDescriptions = {
   max_rooms: '大厅允许同时保留的活跃房间数量上限。',
-  hint_trigger_count: '单局提问达到这个数量后，系统可以触发提示建议。',
+  hint_trigger_count: '距上次提示后再 ask 多少条触发自动提示。',
   ai_cooldown_questions: 'AI 裁判相关操作按提问数计算的冷却间隔。',
   ai_cooldown_seconds: 'AI 裁判请求之间的最短秒级间隔。',
   generate_cooldown_seconds: 'AI 生成题目的按钮冷却秒数。',
@@ -210,6 +210,54 @@ function rowKey(tab, row) {
   return `${tab}-${row.id ?? row.key}`
 }
 
+function formatTestResultBody(data, reply) {
+  const lines = []
+  if (data?.config_name || data?.model) {
+    lines.push(`配置：${data.config_name || '—'} · 模型 ${data.model || '—'}`)
+  }
+  if (data?.http_status != null) {
+    lines.push(`HTTP：${data.http_status}`)
+  }
+  if (data?.llm_ms != null) {
+    lines.push(`耗时：${data.llm_ms}ms`)
+  }
+  if (lines.length) lines.push('')
+  lines.push(reply || '(无文本回复)')
+  return lines.join('\n')
+}
+
+function TestResultBlock({ result, onClose, className = '' }) {
+  if (!result) return null
+  return (
+    <div className={`cfg-test-result ${result.success ? 'cfg-test-result--ok' : 'cfg-test-result--err'} ${className}`.trim()}>
+      <div className="cfg-test-result-head">
+        <div className="cfg-test-result-title">{result.title}</div>
+        <button type="button" className="cfg-test-result-close" onClick={onClose} aria-label="关闭">关闭</button>
+      </div>
+      <pre className="cfg-test-result-body">{result.body}</pre>
+    </div>
+  )
+}
+
+async function runApiConfigTest(configId) {
+  const data = await post(`/admin/api-configs/${configId}/test`)
+  const reply = data.data?.reply || ''
+  const rawText = data.data?.raw ? JSON.stringify(data.data.raw, null, 2) : ''
+  if (data.success) {
+    return {
+      success: true,
+      title: '测试成功',
+      body: formatTestResultBody(data.data, reply),
+    }
+  }
+  const errDetail = rawText.slice(0, 2000) || data.message || '(无详情)'
+  return {
+    success: false,
+    title: '测试失败',
+    body: formatTestResultBody(data.data, errDetail),
+  }
+}
+
 export default function Admin() {
   const [tab, setTab] = useState('overview')
   const [rows, setRows] = useState(null)
@@ -218,6 +266,8 @@ export default function Admin() {
   const [draft, setDraft] = useState({})
   const [error, setError] = useState('')
   const [authError, setAuthError] = useState(null)
+  const [testingConfigId, setTestingConfigId] = useState(null)
+  const [testResult, setTestResult] = useState(null)
 
   const load = async () => {
     try {
@@ -301,6 +351,24 @@ export default function Admin() {
     load()
   }
 
+  const handleTestConfig = async (row) => {
+    setTestingConfigId(row.id)
+    setTestResult(null)
+    try {
+      const result = await runApiConfigTest(row.id)
+      setTestResult({ configId: row.id, ...result })
+    } catch (e) {
+      setTestResult({
+        configId: row.id,
+        success: false,
+        title: '网络错误',
+        body: e.message || '请检查网络或稍后重试',
+      })
+    } finally {
+      setTestingConfigId(null)
+    }
+  }
+
   const saveModal = async () => {
     const payload = serializeDraft(tab, draft)
     if (modal.mode === 'add') {
@@ -335,6 +403,13 @@ export default function Admin() {
             <button onClick={load}>刷新</button>
           </div>
           {error && <p className="error">{error}</p>}
+          {tab === 'api-configs' && testResult && (
+            <TestResultBlock
+              result={testResult}
+              onClose={() => setTestResult(null)}
+              className="cfg-test-result--panel"
+            />
+          )}
           {tab === 'overview' ? <Overview data={rows} onOpen={(nextTab) => setTab(nextTab)} /> : (
             <AdminTable
               tab={tab}
@@ -343,6 +418,8 @@ export default function Admin() {
               onEdit={openEdit}
               onDelete={removeRow}
               onAction={runAction}
+              onTest={handleTestConfig}
+              testingConfigId={testingConfigId}
             />
           )}
         </>
@@ -401,7 +478,7 @@ function Overview({ data, onOpen }) {
   )
 }
 
-function AdminTable({ tab, rows, onView, onEdit, onDelete, onAction }) {
+function AdminTable({ tab, rows, onView, onEdit, onDelete, onAction, onTest, testingConfigId }) {
   if (!Array.isArray(rows)) return <p className="loading">加载中...</p>
   if (rows.length === 0) return <p className="loading">暂无记录</p>
   const cols = columns[tab] || Object.keys(rows[0])
@@ -425,7 +502,7 @@ function AdminTable({ tab, rows, onView, onEdit, onDelete, onAction }) {
                 <div className="row-actions">
                   <button onClick={() => onView(row)}>查看</button>
                   {canEdit.has(tab) && <button onClick={() => onEdit(row)}>编辑</button>}
-                  {extraActions(tab, row, onAction)}
+                  {extraActions(tab, row, onAction, onTest, testingConfigId)}
                   {canDelete.has(tab) && <button className="danger" onClick={() => onDelete(row)}>删除</button>}
                 </div>
               </td>
@@ -437,7 +514,18 @@ function AdminTable({ tab, rows, onView, onEdit, onDelete, onAction }) {
   )
 }
 
-function extraActions(tab, row, onAction) {
+function extraActions(tab, row, onAction, onTest, testingConfigId) {
+  if (tab === 'api-configs') {
+    return (
+      <button
+        type="button"
+        disabled={testingConfigId === row.id}
+        onClick={() => onTest(row)}
+      >
+        {testingConfigId === row.id ? '测试中…' : '测试'}
+      </button>
+    )
+  }
   if (tab === 'puzzles') return <button onClick={() => onAction('togglePuzzle', row)}>{row.enabled ? '停用' : '启用'}</button>
   if (tab === 'submissions') return <><button onClick={() => onAction('addSubmission', row)}>收录</button><button onClick={() => onAction('ignoreSubmission', row)}>忽略</button></>
   if (tab === 'players') return <><button onClick={() => onAction('resetPlayer', row)}>清零</button><button onClick={() => onAction('toggleAdmin', row)}>{row.is_admin ? '取消管理员' : '设为管理员'}</button></>
@@ -451,6 +539,35 @@ function FormModal({ modal, draft, setDraft, onClose, onSave }) {
   const fields = modal.mode === 'view'
     ? Object.keys(draft).map((key) => ({ key, label: fieldLabels[key] || key, readOnly: true }))
     : formFields[modal.tab] || []
+  const [testing, setTesting] = useState(false)
+  const [modalTestResult, setModalTestResult] = useState(null)
+  const canTest = modal.tab === 'api-configs' && modal.mode === 'edit' && draft.id
+
+  const handleTestConfig = async () => {
+    if (!draft.id) {
+      setModalTestResult({
+        success: false,
+        title: '无法测试',
+        body: '请先保存配置后再测试',
+      })
+      return
+    }
+    setTesting(true)
+    setModalTestResult(null)
+    try {
+      const result = await runApiConfigTest(draft.id)
+      setModalTestResult(result)
+    } catch (e) {
+      setModalTestResult({
+        success: false,
+        title: '网络错误',
+        body: e.message || '请检查网络或稍后重试',
+      })
+    } finally {
+      setTesting(false)
+    }
+  }
+
   return (
     <div className="modal-backdrop">
       <div className="admin-modal">
@@ -466,8 +583,20 @@ function FormModal({ modal, draft, setDraft, onClose, onSave }) {
             </label>
           ))}
         </div>
+        {modalTestResult && (
+          <TestResultBlock
+            result={modalTestResult}
+            onClose={() => setModalTestResult(null)}
+            className="cfg-test-result--modal"
+          />
+        )}
         <div className="modal-actions">
-          {modal.mode !== 'view' && <button className="primary" onClick={onSave}>保存</button>}
+          {canTest && (
+            <button type="button" className="btn-test-leading" onClick={handleTestConfig} disabled={testing}>
+              {testing ? '测试中…' : '测试'}
+            </button>
+          )}
+          {modal.mode !== 'view' && <button className="primary" onClick={onSave} disabled={testing}>保存</button>}
           <button onClick={onClose}>取消</button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,7 @@ from database import fetch_all, get_setting
 
 
 fail_counts: dict[int, int] = {}
+_rr_index: int = 0
 FAIL_LIMIT = 5
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
@@ -39,11 +41,15 @@ def _endpoint(base: str) -> str:
 
 
 async def _chat(messages: list[dict[str, str]], temperature: float = 0.1) -> str:
+    global _rr_index
     errors: list[str] = []
     available = await _configs()
     if not available:
         raise HTTPException(status_code=503, detail="裁判暂时不可用，请稍后再试")
-    for cfg in available:
+    n = len(available)
+    start = _rr_index % n
+    for i in range(n):
+        cfg = available[(start + i) % n]
         cid = int(cfg["id"])
         try:
             async with httpx.AsyncClient(timeout=45) as client:
@@ -60,12 +66,96 @@ async def _chat(messages: list[dict[str, str]], temperature: float = 0.1) -> str
                 data = resp.json()
                 text = data["choices"][0]["message"]["content"]
             fail_counts[cid] = 0
+            try:
+                _rr_index = (available.index(cfg) + 1) % n
+            except ValueError:
+                pass
             return str(text).strip()
         except Exception as exc:
             fail_counts[cid] = fail_counts.get(cid, 0) + 1
             errors.append(f"{cfg.get('name')}: {exc}")
             continue
     raise HTTPException(status_code=503, detail="裁判暂时不可用，请稍后再试")
+
+
+def _extract_reply(raw: Any) -> str:
+    if not isinstance(raw, dict):
+        return str(raw)[:2000]
+    choices = raw.get("choices")
+    if isinstance(choices, list) and choices:
+        msg = choices[0].get("message") if isinstance(choices[0], dict) else None
+        if isinstance(msg, dict):
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+    for key in ("output_text", "text", "content"):
+        val = raw.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return json.dumps(raw, ensure_ascii=False)[:2000]
+
+
+async def test_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    api_key = (cfg.get("api_key") or "").strip()
+    api_url = (cfg.get("api_url") or "").strip()
+    model = (cfg.get("model") or "").strip()
+    name = cfg.get("name") or ""
+
+    if not api_url or not api_key:
+        return {"success": False, "data": None, "message": "配置缺少 API Key 或接口地址"}
+    if not model:
+        return {"success": False, "data": None, "message": "请先填写模型名再测试"}
+
+    messages = [
+        {"role": "system", "content": "你是连通性测试助手。"},
+        {"role": "user", "content": "请只回复：测试成功"},
+    ]
+    t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
+            resp = await client.post(
+                _endpoint(api_url),
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.1,
+                    "max_tokens": 32,
+                },
+            )
+            try:
+                raw = resp.json()
+            except Exception:
+                raw = {"_raw_text": (resp.text or "")[:4000]}
+            llm_ms = int((time.perf_counter() - t0) * 1000)
+            if resp.status_code >= 400:
+                detail = raw if isinstance(raw, dict) else {"_raw_text": str(raw)}
+                return {
+                    "success": False,
+                    "data": {
+                        "http_status": resp.status_code,
+                        "raw": detail,
+                        "config_name": name,
+                        "model": model,
+                        "llm_ms": llm_ms,
+                    },
+                    "message": f"测试失败: HTTP {resp.status_code}",
+                }
+            reply_text = _extract_reply(raw) or "(无文本回复)"
+            return {
+                "success": True,
+                "data": {
+                    "reply": reply_text,
+                    "raw": raw,
+                    "http_status": resp.status_code,
+                    "config_name": name,
+                    "model": model,
+                    "llm_ms": llm_ms,
+                },
+                "message": "测试成功",
+            }
+    except Exception as exc:
+        return {"success": False, "data": None, "message": f"测试请求失败: {exc}"}
 
 
 async def judge_ask(answer: str, question: str) -> str:

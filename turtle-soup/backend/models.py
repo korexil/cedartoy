@@ -28,6 +28,10 @@ class ContentBody(BaseModel):
     content: str = Field(min_length=1, max_length=200)
 
 
+class HintRequestBody(BaseModel):
+    room_id: str
+
+
 class HintResponseBody(BaseModel):
     room_id: str
     log_id: int

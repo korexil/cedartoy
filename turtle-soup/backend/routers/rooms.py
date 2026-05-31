@@ -91,12 +91,23 @@ async def create_room(body: RoomCreateBody, player: dict = Depends(current_playe
 @router.get("/{room_id}")
 async def get_room(room_id: str, player: dict = Depends(current_player)):
     del player
-    room = await fetch_one("SELECT * FROM rooms WHERE id = ?", (room_id,))
+    room = await fetch_one(
+        """
+        SELECT r.*,
+               COALESCE(NULLIF(TRIM(pz.title), ''), '') AS title,
+               COALESCE(pz.tags, '') AS tags
+        FROM rooms r
+        LEFT JOIN puzzles pz ON pz.id = r.puzzle_id
+        WHERE r.id = ?
+        """,
+        (room_id,),
+    )
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
     logs = await fetch_all(
         """
-        SELECT gl.id, gl.room_id, gl.player_id, gl.type, gl.content, gl.judgment, gl.created_at,
+        SELECT gl.id, gl.room_id, gl.player_id, gl.type, gl.content, gl.judgment,
+               gl.hint_text, gl.resolved, gl.created_at,
                p.username, p.is_guest, p.is_ai
         FROM game_logs gl
         LEFT JOIN players p ON p.id = gl.player_id
@@ -107,12 +118,15 @@ async def get_room(room_id: str, player: dict = Depends(current_player)):
     )
     notes = await fetch_all(
         """
-        SELECT rn.*, p.username FROM room_notes rn
+        SELECT rn.*, p.username, p.is_guest FROM room_notes rn
         LEFT JOIN players p ON p.id = rn.player_id
         WHERE rn.room_id = ? ORDER BY rn.updated_at DESC
         """,
         (room_id,),
     )
+    for note in notes:
+        if not (note.get("username") or "").strip():
+            note["username"] = f"游客{note['player_id']}"
     data = _public_room(room)
     data["logs"] = logs
     data["notes"] = notes

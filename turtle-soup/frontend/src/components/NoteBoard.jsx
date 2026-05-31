@@ -1,29 +1,76 @@
 import { useState } from 'react'
 import { del, post, put } from '../api'
+import { noteAuthor } from '../utils/display.js'
 
 export default function NoteBoard({ roomId, notes, setNotes }) {
   const [content, setContent] = useState('')
-  const add = async () => {
-    if (!content.trim()) return
-    const note = await post(`/notes/${roomId}`, { content })
+
+  const addNote = async () => {
+    const text = content.trim()
+    if (!text) return
+    const note = await post(`/notes/${roomId}`, { content: text })
     setNotes((items) => [note, ...items])
     setContent('')
   }
+
   const remove = async (id) => {
     await del(`/notes/${id}`)
-    setNotes((items) => items.filter((n) => n.id !== id))
+    setNotes((items) => items.filter((note) => note.id !== id))
   }
+
   const edit = async (note) => {
-    const next = prompt('修改记事', note.content)
-    if (!next) return
-    const updated = await put(`/notes/${note.id}`, { content: next })
-    setNotes((items) => items.map((n) => (n.id === note.id ? updated : n)))
+    const next = prompt('修改笔记', note.content)
+    if (!next?.trim()) return
+    const updated = await put(`/notes/${note.id}`, { content: next.trim() })
+    setNotes((items) => items.map((item) => (item.id === note.id ? updated : item)))
   }
+
   return (
-    <aside className="notes">
-      <h3>记事板</h3>
-      <div className="note-input"><input maxLength="50" value={content} onChange={(e) => setContent(e.target.value)} /><button onClick={add}>添加</button></div>
-      {notes.map((note) => <div className="note" key={note.id}><p>{note.content}</p><small>{note.username || `游客${note.player_id}`}</small><div><button onClick={() => edit(note)}>改</button><button onClick={() => remove(note.id)}>删</button></div></div>)}
+    <aside className="room-notepad">
+      <div className="terminal-head">
+        <span className="lights"><i /><i /><i /></span>
+        <strong>记事板</strong>
+        <small>共享</small>
+      </div>
+      <div className="notepad-body">
+        {notes.length > 0 ? (
+          <div className="notepad-saved">
+            {notes.map((note) => (
+              <div className="notepad-item" key={note.id}>
+                <p>{note.content}</p>
+                <footer>
+                  <small>{noteAuthor(note)}</small>
+                  <div>
+                    <button type="button" onClick={() => edit(note)}>改</button>
+                    <button type="button" onClick={() => remove(note.id)}>删</button>
+                  </div>
+                </footer>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="notepad-empty">暂无笔记，添加后全房间可见。</p>
+        )}
+      </div>
+      <div className="notepad-actions">
+        <input
+          className="notepad-input"
+          maxLength={50}
+          value={content}
+          onChange={(event) => setContent(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              addNote()
+            }
+          }}
+          placeholder="记录推理线索…"
+          aria-label="笔记内容"
+        />
+        <button type="button" className="pixel-primary" disabled={!content.trim()} onClick={addNote}>
+          添加
+        </button>
+      </div>
     </aside>
   )
 }

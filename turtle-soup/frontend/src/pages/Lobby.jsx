@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, History, ListPlus, LogOut, Plus, Search, Shield, Trophy, UserRound } from 'lucide-react'
 import { api, ensureGuestToken, logoutToGuest, post } from '../api'
 import Leaderboard from '../components/Leaderboard.jsx'
@@ -46,6 +46,7 @@ function initials(player) {
 
 export default function Lobby() {
   const nav = useNavigate()
+  const location = useLocation()
   const [rooms, setRooms] = useState([])
   const [random, setRandom] = useState(null)
   const [custom, setCustom] = useState({ surface: '', answer: '' })
@@ -77,6 +78,12 @@ export default function Lobby() {
     }
   }
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    const tab = location.state?.tab
+    if (tab === 'leaderboard' || tab === 'history' || tab === 'mine') {
+      setBottomTab(tab)
+    }
+  }, [location.state?.tab])
   useEffect(() => {
     if (aiCooldown <= 0) return
     const t = setTimeout(() => setAiCooldown(aiCooldown - 1), 1000)

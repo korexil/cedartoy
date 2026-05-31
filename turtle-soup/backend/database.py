@@ -121,6 +121,8 @@ async def init_db() -> None:
                 status TEXT DEFAULT 'waiting',
                 created_by INTEGER REFERENCES players(id),
                 winner_id INTEGER REFERENCES players(id),
+                manual_hint_count INTEGER DEFAULT 0,
+                last_hint_at_ask_count INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 finished_at TIMESTAMP
             );
@@ -206,6 +208,12 @@ async def init_db() -> None:
             puzzle_cols = {row[1] for row in await cur.fetchall()}
         if "title" not in puzzle_cols:
             await db.execute("ALTER TABLE puzzles ADD COLUMN title TEXT DEFAULT ''")
+        async with db.execute("PRAGMA table_info(rooms)") as cur:
+            room_cols = {row[1] for row in await cur.fetchall()}
+        if "manual_hint_count" not in room_cols:
+            await db.execute("ALTER TABLE rooms ADD COLUMN manual_hint_count INTEGER DEFAULT 0")
+        if "last_hint_at_ask_count" not in room_cols:
+            await db.execute("ALTER TABLE rooms ADD COLUMN last_hint_at_ask_count INTEGER DEFAULT 0")
         seed_count = await db.execute_fetchall("SELECT COUNT(*) AS c FROM puzzles")
         if int(seed_count[0]["c"]) == 0:
             await db.executemany(

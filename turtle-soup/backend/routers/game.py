@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import judge
 from auth_utils import current_player
 from database import execute, fetch_all, fetch_one, get_db, get_setting
-from models import ContentBody, HintResponseBody
+from models import ContentBody, HintRequestBody, HintResponseBody
 from presence import touch_room
 from sse import broadcast
 from utils import clean_content
@@ -23,7 +23,8 @@ async def _room(room_id: str) -> dict:
 async def _log_payload(log_id: int) -> dict:
     return await fetch_one(
         """
-        SELECT gl.id, gl.room_id, gl.player_id, gl.type, gl.content, gl.judgment, gl.created_at,
+        SELECT gl.id, gl.room_id, gl.player_id, gl.type, gl.content, gl.judgment,
+               gl.hint_text, gl.resolved, gl.created_at,
                p.username, p.is_guest, p.is_ai
         FROM game_logs gl
         LEFT JOIN players p ON p.id = gl.player_id
@@ -31,6 +32,58 @@ async def _log_payload(log_id: int) -> dict:
         """,
         (log_id,),
     )
+
+
+async def _ask_count(room_id: str) -> int:
+    row = await fetch_one("SELECT COUNT(*) AS c FROM game_logs WHERE room_id = ? AND type = 'ask'", (room_id,))
+    return int(row["c"])
+
+
+async def _pending_hint(room_id: str) -> dict | None:
+    return await fetch_one(
+        "SELECT id FROM game_logs WHERE room_id = ? AND type = 'hint_offer' AND resolved = 0",
+        (room_id,),
+    )
+
+
+async def _offer_hint(room: dict, ask_count: int, *, manual: bool = False) -> dict:
+    logs = await fetch_all("SELECT * FROM game_logs WHERE room_id = ? ORDER BY id ASC", (room["id"],))
+    hint = await judge.generate_hint(room["answer"], logs)
+    if manual:
+        if await _pending_hint(room["id"]):
+            raise HTTPException(status_code=400, detail="请先处理当前提示")
+        hint_id = await execute(
+            "INSERT INTO game_logs (room_id, type, content, hint_text) VALUES (?, 'hint_offer', ?, ?)",
+            (room["id"], f"hint:{ask_count}", hint),
+        )
+        await execute(
+            "UPDATE rooms SET manual_hint_count = manual_hint_count + 1, last_hint_at_ask_count = ? WHERE id = ?",
+            (ask_count, room["id"]),
+        )
+        payload = {"log_id": hint_id, "hint_text": hint}
+        await broadcast(room["id"], "hint_offer", payload)
+        return payload
+    hint_id = await execute(
+        "INSERT INTO game_logs (room_id, type, content, hint_text, judgment) VALUES (?, 'auto_hint', ?, ?, 'auto_hint')",
+        (room["id"], hint, hint),
+    )
+    await execute(
+        "UPDATE rooms SET last_hint_at_ask_count = ? WHERE id = ?",
+        (ask_count, room["id"]),
+    )
+    payload = await _log_payload(hint_id)
+    await broadcast(room["id"], "new_log", payload)
+    return {"log_id": hint_id, "hint_text": hint}
+
+
+async def _maybe_auto_hint(room: dict, ask_count: int) -> None:
+    trigger = int(await get_setting("hint_trigger_count", "30"))
+    last_hint_at = int(room.get("last_hint_at_ask_count") or 0)
+    if trigger <= 0 or ask_count < last_hint_at + trigger:
+        return
+    if await _pending_hint(room["id"]):
+        return
+    await _offer_hint(room, ask_count)
 
 
 @router.post("/ask")
@@ -75,22 +128,8 @@ async def ask(body: ContentBody, player: dict = Depends(current_player)):
     await touch_room(body.room_id, player["id"])
     await broadcast(body.room_id, "new_log", payload)
 
-    trigger = int(await get_setting("hint_trigger_count", "30"))
-    count_row = await fetch_one("SELECT COUNT(*) AS c FROM game_logs WHERE room_id = ? AND type = 'ask'", (body.room_id,))
-    ask_count = int(count_row["c"])
-    if trigger > 0 and ask_count % trigger == 0:
-        offered = await fetch_one(
-            "SELECT id FROM game_logs WHERE room_id = ? AND type = 'hint_offer' AND content = ?",
-            (body.room_id, f"hint:{ask_count}"),
-        )
-        if not offered:
-            logs = await fetch_all("SELECT * FROM game_logs WHERE room_id = ? ORDER BY id ASC", (body.room_id,))
-            hint = await judge.generate_hint(room["answer"], logs)
-            hint_id = await execute(
-                "INSERT INTO game_logs (room_id, type, content, hint_text) VALUES (?, 'hint_offer', ?, ?)",
-                (body.room_id, f"hint:{ask_count}", hint),
-            )
-            await broadcast(body.room_id, "hint_offer", {"log_id": hint_id, "hint_text": hint})
+    ask_count = await _ask_count(body.room_id)
+    await _maybe_auto_hint(room, ask_count)
     return payload
 
 
@@ -122,11 +161,29 @@ async def guess(body: ContentBody, player: dict = Depends(current_player)):
             await db.commit()
         finally:
             await db.close()
+        reveal_id = await execute(
+            "INSERT INTO game_logs (room_id, type, content, judgment) VALUES (?, 'system', ?, 'game_over')",
+            (body.room_id, room["answer"]),
+        )
+        reveal_payload = await _log_payload(reveal_id)
         await broadcast(body.room_id, "new_log", payload)
+        await broadcast(body.room_id, "new_log", reveal_payload)
         await broadcast(body.room_id, "game_over", {"answer": room["answer"], "winner": {"id": player["id"], "username": player.get("username") or f"游客{player['id']}"}})
     else:
         await broadcast(body.room_id, "new_log", payload)
     return payload | {"correct": correct}
+
+
+@router.post("/hint/request")
+async def hint_request(body: HintRequestBody, player: dict = Depends(current_player)):
+    del player
+    room = await _room(body.room_id)
+    manual_count = int(room.get("manual_hint_count") or 0)
+    if manual_count >= 3:
+        raise HTTPException(status_code=400, detail="手动提示次数已用完")
+    ask_count = await _ask_count(body.room_id)
+    payload = await _offer_hint(room, ask_count, manual=True)
+    return payload | {"manual_hint_remaining": 3 - manual_count - 1}
 
 
 @router.post("/hint/respond")

@@ -1,12 +1,12 @@
-const map = {
-  yes: ['是', 'badge yes'],
-  no: ['否', 'badge no'],
-  unrelated: ['不相关', 'badge unrelated'],
-  partial: ['是也不是', 'badge partial'],
+const JUDGMENT_STYLES = {
+  yes: ['YES', 'judgment-yes'],
+  no: ['NO', 'judgment-no'],
+  partial: ['???', 'judgment-partial'],
+  unrelated: ['--', 'judgment-unrelated'],
 }
 
 export default function JudgeBadge({ value }) {
-  if (!value) return null
-  const [label, cls] = map[value] || [value, 'badge']
-  return <span className={cls}>{label}</span>
+  if (!value || value === 'game_over' || value === 'auto_hint') return null
+  const [label, cls] = JUDGMENT_STYLES[value] || [value, 'judgment-other']
+  return <span className={`log-judgment ${cls}`}>&gt; {label}</span>
 }
