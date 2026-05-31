@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from auth_utils import current_player
 from database import execute, fetch_all, fetch_one, get_setting
+from judge import scan_text
 from models import RoomCreateBody
 from utils import clean_content, public_player, room_id
 
@@ -65,6 +66,9 @@ async def create_room(body: RoomCreateBody, player: dict = Depends(current_playe
         surface = clean_content(body.surface or "", 500)
         answer = clean_content(body.answer or "", 1000)
         if body.mode == "custom":
+            reason = await scan_text(f"{surface}\n{answer}")
+            if reason:
+                raise HTTPException(status_code=400, detail=reason)
             await execute(
                 "INSERT INTO puzzle_submissions (surface, answer, tags, submitted_by) VALUES (?, ?, ?, ?)",
                 (surface, answer, body.tags[:100], player["id"]),

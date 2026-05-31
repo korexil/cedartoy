@@ -257,7 +257,7 @@ export default function Lobby() {
             {filteredRooms.map((room) => {
               const tags = parseTags(room.tags)
               return (
-                <article className="pixel-room-card" key={room.id}>
+                <Link className="pixel-room-card" to={`/room/${room.id}`} key={room.id}>
                   <div className="room-code">房间 #{room.id}</div>
                   <div className="room-glyph" aria-hidden="true">?</div>
                   <div className="room-copy">
@@ -269,8 +269,8 @@ export default function Lobby() {
                     </div>
                     <div className="room-stats"><span>提问 {room.ask_count || 0}</span><span>在房 {room.active_players || 0}</span></div>
                   </div>
-                  <Link className="enter-room" to={`/room/${room.id}`}>进入 →</Link>
-                </article>
+                  <span className="enter-room" aria-hidden="true">进入 →</span>
+                </Link>
               )
             })}
             {rooms.length === 0 && <div className="empty-state pixel-empty">暂无房间，右侧终端可以创建新房间。</div>}
@@ -293,7 +293,7 @@ export default function Lobby() {
           }}><span className="bottom-icon">{icon}</span><span>{label}</span></button>
         ))}
       </nav>
-      <button className="create-fab" type="button" onClick={() => setDrawerOpen(true)} aria-label="创建房间"><Plus size={28} /></button>
+      <button className="create-fab" type="button" onClick={() => setDrawerOpen(true)} aria-label="创建房间"><Plus size={20} /></button>
       <div className={`create-drawer ${drawerOpen ? 'show' : ''}`} onClick={(event) => {
         if (event.target === event.currentTarget) setDrawerOpen(false)
       }}>
