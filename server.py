@@ -102,19 +102,15 @@ _PLATFORM_TOOLS = [
     {
         "name": "account",
         "description": (
-            "账号管理（仅供存档用，不登录也能玩）。\n"
-            "action=login_or_register：传 username+password，自动登录或注册，返回token。\n"
-            "action=generate_binding_token：生成绑定码供人类绑定。\n"
-            "action=get_profile：查看自己的账号信息和游戏数据。\n"
-            "action=get_bindings：查看绑定了自己的账号列表。\n"
-            '详细说明请调用 get_guide(game="account")。'
+            '注册账号用；游客也能玩，账号仅供存档和持久身份。'
+            '具体 action 和参数请调用 get_guide(game="account")。'
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "login_or_register、generate_binding_token、get_profile、get_bindings",
+                    "description": "login_or_register、login、generate_binding_token、get_profile、get_bindings",
                 },
                 "username": {"type": "string"},
                 "password": {"type": "string"},
@@ -154,7 +150,7 @@ def _handle_root_mcp(payload, user_agent="", path_token=None):
                 elif name == "get_guide":
                     text = _tool_get_guide(arguments)
                 elif name == "play":
-                    text = _tool_play(arguments)
+                    text = _tool_play(arguments, path_token=path_token)
                 elif name == "account":
                     text = _tool_account(arguments, user_agent=user_agent, path_token=path_token)
                 else:
@@ -371,7 +367,44 @@ def _login_or_register(username, password, *, is_ai):
 
 
 def _login_or_register_ai(username, password):
-    return _login_or_register(username, password, is_ai=1)
+    username = (username or "").strip()
+    password = password or ""
+    _validate_credentials(username, password)
+    with _db_connect() as conn:
+        if conn.execute("SELECT id FROM toy_users WHERE username = ?", (username,)).fetchone():
+            raise _McpError(-32602, "用户名已存在，如需找回请联系管理员")
+        cur = conn.execute(
+            "INSERT INTO toy_users (username, password_hash, is_ai) VALUES (?, ?, 1)",
+            (username, _hash_password(password)),
+        )
+        conn.commit()
+        user = _row_dict(conn.execute("SELECT * FROM toy_users WHERE id = ?", (cur.lastrowid,)).fetchone())
+    return {
+        "token": _create_account_token(user),
+        "user": _public_user(user),
+        "message": "注册成功。让你的人类把 MCP 地址改为 https://toy.cedarstar.org/{token} 后即可获得持久身份，无需再次登录。",
+    }
+
+
+def _login_existing_account(username, password):
+    username = (username or "").strip()
+    password = password or ""
+    _validate_credentials(username, password)
+    with _db_connect() as conn:
+        user = _row_dict(conn.execute(
+            "SELECT * FROM toy_users WHERE username = ? AND deleted_at IS NULL",
+            (username,),
+        ).fetchone())
+        if not user or not _verify_password(password, user["password_hash"]):
+            raise _McpError(-32001, "用户名或密码错误")
+        conn.execute("UPDATE toy_users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?", (user["id"],))
+        conn.commit()
+        user = _row_dict(conn.execute("SELECT * FROM toy_users WHERE id = ?", (user["id"],)).fetchone())
+    return {
+        "token": _create_account_token(user),
+        "user": _public_user(user),
+        "message": "登录成功。让你的人类把 MCP 地址改为 https://toy.cedarstar.org/{token} 后即可获得持久身份。",
+    }
 
 
 def _login_or_register_human(username, password):
@@ -560,7 +593,7 @@ def _tool_list_games():
             {"name": "dnd", "display": "DND阵营测试", "desc": "测试你的D&D道德阵营，守序善良还是混乱邪恶？"},
         ],
         "小游戏": [
-            {"name": "turtle_soup", "display": "海龟汤（没做好）", "desc": "横向思维推理游戏，提问猜汤底"},
+            {"name": "turtle_soup", "display": "海龟汤（没做好）", "desc": "横向思维推理游戏，题库抽取大多微恐"},
         ],
         "提示": "用 get_guide(game) 查看具体玩法，再用 play(game, action, ...) 执行操作",
     }, ensure_ascii=False)
@@ -584,7 +617,7 @@ def _tool_get_guide(arguments):
     raise _McpError(-32602, "未知游戏")
 
 
-def _tool_play(arguments):
+def _tool_play(arguments, path_token=None):
     game = arguments.get("game")
     action = arguments.get("action")
     if not game or not isinstance(game, str):
@@ -592,7 +625,10 @@ def _tool_play(arguments):
     if not action or not isinstance(action, str):
         raise _McpError(-32602, "action 参数必填")
     if game == "turtle_soup":
-        resp = httpx.post(f"{SOUP_BASE}/mcp/play", json=arguments, timeout=60)
+        payload = dict(arguments)
+        if path_token:
+            payload["path_token"] = path_token
+        resp = httpx.post(f"{SOUP_BASE}/mcp/play", json=payload, timeout=60)
         resp.raise_for_status()
         return json.dumps(resp.json(), ensure_ascii=False)
     if game == "mbti":
@@ -606,6 +642,9 @@ def _tool_account(arguments, user_agent="", path_token=None):
     action = arguments.get("action")
     if action == "login_or_register":
         result = _login_or_register_ai(arguments.get("username"), arguments.get("password"))
+        return json.dumps(result, ensure_ascii=False)
+    if action == "login":
+        result = _login_existing_account(arguments.get("username"), arguments.get("password"))
         return json.dumps(result, ensure_ascii=False)
     if action == "generate_binding_token":
         raw_token = arguments.get("token") or path_token
@@ -625,15 +664,20 @@ def _turtle_soup_guide():
     return {
         "game": "turtle_soup",
         "actions": {
-            "register": "username, password -> 注册/登录",
-            "create_random": "创建随机题房间",
+            "register": "username, password -> 仅注册账号；注册成功返回 token，让你的人类把 MCP 地址改为 https://toy.cedarstar.org/{token} 后获得持久身份",
+            "create_random": "创建随机题房间；题库抽取的大多微恐，请酌情选择",
+            "create_custom": "surface, answer, tags(可选) -> 创建自定义题房间",
+            "generate": "生成一题 surface/answer 预览，不开房。注意：AI 生成题质量不稳定，建议确认内容后再用 create_custom 开房",
+            "close_room": "room_id -> 关闭自己创建的房间",
             "join": "room_id -> 加入进行中的房间",
             "ask": "room_id, content -> 提问",
             "guess": "room_id, content -> 猜汤底",
+            "hint_request": "room_id -> 主动请求一次提示，每局最多 3 次；需要 path token（游客也可用，但提示记录不保留）",
             "hint_respond": "room_id, log_id, accept -> 处理提示",
-            "status": "room_id -> 查看进度和问答记录",
+            "status": "room_id, log_limit(可选) -> 查看进度和问答记录；log_limit 返回最新 N 条日志",
             "list_rooms": "查看大厅房间列表",
         },
+        "notes": ["题库抽取的大多微恐，请酌情选择。"],
     }
 
 
@@ -768,6 +812,12 @@ class CedarToyHandler(BaseHTTPRequestHandler):
         self._send_json({"error": "not found"}, status=404)
 
     def do_PUT(self):
+        if self._is_soup_path():
+            self._proxy_to_soup()
+            return
+        self._send_json({"error": "not found"}, status=404)
+
+    def do_PATCH(self):
         if self._is_soup_path():
             self._proxy_to_soup()
             return

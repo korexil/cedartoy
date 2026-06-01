@@ -1,16 +1,30 @@
+import base64
+import hashlib
+import hmac
+import json
+import os
+import re
+import time
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from auth_utils import hash_password, verify_password
-from database import execute, fetch_all, fetch_one
-from models import ContentBody, HintResponseBody, RoomCreateBody
+from auth_utils import hash_password
+from database import execute, fetch_all, fetch_one, get_db
+from models import ContentBody, HintRequestBody, HintResponseBody, NoteBody, RoomCreateBody
 from routers.game import ask as game_ask
+from routers.game import generate as game_generate
 from routers.game import guess as game_guess
+from routers.game import hint_request as game_hint_request
 from routers.game import hint_respond as game_hint_respond
-from routers.rooms import create_room
+from routers.notes import add_note, delete_note, update_note
+from routers.rooms import close_room, create_room
 from utils import clean_content
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
+
+TOY_SECRET = os.getenv("TOY_SECRET", "change-me-before-production")
+JWT_ALGORITHM = "HS256"
 
 
 class PlayBody(BaseModel):
@@ -18,11 +32,17 @@ class PlayBody(BaseModel):
 
     game: str
     action: str | None = None
+    path_token: str | None = None
     username: str | None = None
     password: str | None = None
     room_id: str | None = None
     content: str | None = None
+    surface: str | None = None
+    answer: str | None = None
+    tags: str | None = None
+    note_id: int | None = None
     log_id: int | None = None
+    log_limit: int | None = None
     accept: bool | None = None
 
 
@@ -38,13 +58,33 @@ async def play(body: PlayBody):
         if not body.room_id:
             raise HTTPException(status_code=400, detail="room_id 必填")
         room = await fetch_one("SELECT id, surface, status, winner_id, created_at, finished_at FROM rooms WHERE id = ?", (body.room_id,))
-        logs = await fetch_all("SELECT id, player_id, type, content, judgment, created_at FROM game_logs WHERE room_id = ? ORDER BY id ASC", (body.room_id,))
+        if not room:
+            raise HTTPException(status_code=404, detail="房间不存在")
+        if body.log_limit is None:
+            logs = await fetch_all(
+                "SELECT id, player_id, type, content, judgment, created_at FROM game_logs WHERE room_id = ? ORDER BY id ASC",
+                (body.room_id,),
+            )
+        else:
+            if body.log_limit < 0:
+                raise HTTPException(status_code=400, detail="log_limit 不能为负数")
+            logs = await fetch_all(
+                """
+                SELECT id, player_id, type, content, judgment, created_at
+                FROM (
+                    SELECT id, player_id, type, content, judgment, created_at
+                    FROM game_logs
+                    WHERE room_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                )
+                ORDER BY id ASC
+                """,
+                (body.room_id, body.log_limit),
+            )
         return {"room": room, "logs": logs}
-    player = await _mcp_player(body.username, body.password)
     if body.action == "register":
-        return {"player_id": player["id"], "username": player.get("username"), "is_ai": bool(player["is_ai"])}
-    if body.action == "create_random":
-        return await create_room(RoomCreateBody(mode="random"), player)
+        return await _register_toy_user(body.username, body.password)
     if body.action == "join":
         if not body.room_id:
             raise HTTPException(status_code=400, detail="room_id 必填")
@@ -52,9 +92,54 @@ async def play(body: PlayBody):
         if not room:
             raise HTTPException(status_code=404, detail="房间不存在")
         return room
+    if body.action == "generate":
+        return await game_generate()
+    if body.action == "note_list":
+        if not body.room_id:
+            raise HTTPException(status_code=400, detail="room_id 必填")
+        notes = await fetch_all(
+            """
+            SELECT rn.*, p.username, p.is_guest
+            FROM room_notes rn
+            LEFT JOIN players p ON p.id = rn.player_id
+            WHERE rn.room_id = ?
+            ORDER BY rn.updated_at DESC
+            """,
+            (body.room_id,),
+        )
+        for note in notes:
+            if not (note.get("username") or "").strip():
+                note["username"] = f"游客{note['player_id']}"
+        return notes
+    player = await _mcp_player(body.path_token)
+    if body.action == "create_random":
+        return await create_room(RoomCreateBody(mode="random"), player)
+    if body.action == "create_custom":
+        surface = clean_content(body.surface or "", 500)
+        answer = clean_content(body.answer or "", 1000)
+        tags = (body.tags or "").strip()[:100]
+        if not surface or not answer:
+            raise HTTPException(status_code=400, detail="surface 和 answer 必填")
+        result = await create_room(
+            RoomCreateBody(mode="custom", surface=surface, answer=answer, tags=tags),
+            player,
+        )
+        return await fetch_one(
+            "SELECT id, surface, status, created_by, winner_id, created_at, finished_at FROM rooms WHERE id = ?",
+            (result["room_id"],),
+        )
+    if body.action == "close_room":
+        if not body.room_id:
+            raise HTTPException(status_code=400, detail="room_id 必填")
+        return await close_room(body.room_id, player)
     if body.action == "ask":
         if not body.room_id or not body.content:
             raise HTTPException(status_code=400, detail="room_id 和 content 必填")
+        room = await fetch_one("SELECT status FROM rooms WHERE id = ?", (body.room_id,))
+        if not room:
+            raise HTTPException(status_code=404, detail="房间不存在")
+        if room["status"] == "finished":
+            raise HTTPException(status_code=400, detail="房间已结束，无法继续提问")
         return await game_ask(ContentBody(room_id=body.room_id, content=body.content), player)
     if body.action == "guess":
         if not body.room_id or not body.content:
@@ -67,24 +152,175 @@ async def play(body: PlayBody):
             HintResponseBody(room_id=body.room_id, log_id=body.log_id, accept=body.accept),
             player,
         )
+    if body.action == "hint_request":
+        if not body.room_id:
+            raise HTTPException(status_code=400, detail="room_id 必填")
+        return await game_hint_request(HintRequestBody(room_id=body.room_id), player)
+    if body.action == "note_add":
+        if not body.room_id or not body.content:
+            raise HTTPException(status_code=400, detail="room_id 和 content 必填")
+        return await add_note(body.room_id, NoteBody(content=clean_content(body.content, 50)), player)
+    if body.action == "note_edit":
+        if body.note_id is None or not body.content:
+            raise HTTPException(status_code=400, detail="note_id 和 content 必填")
+        return await update_note(body.note_id, NoteBody(content=clean_content(body.content, 50)), player)
+    if body.action == "note_delete":
+        if body.note_id is None:
+            raise HTTPException(status_code=400, detail="note_id 必填")
+        return await delete_note(body.note_id, player)
     raise HTTPException(status_code=400, detail="未知 action")
 
 
-async def _mcp_player(username: str | None, password: str | None) -> dict:
-    if username:
-        username = clean_content(username, 32)
-        row = await fetch_one("SELECT * FROM players WHERE username = ?", (username,))
-        if row:
-            if not verify_password(password or "", row["password_hash"] or ""):
-                raise HTTPException(status_code=401, detail="用户名或密码错误")
-            await execute("UPDATE players SET is_ai = 1, source = 'mcp', last_active_at = CURRENT_TIMESTAMP WHERE id = ?", (row["id"],))
-            return await fetch_one("SELECT * FROM players WHERE id = ?", (row["id"],))
-        if not password or len(password) < 4:
-            raise HTTPException(status_code=400, detail="密码至少 4 位")
-        pid = await execute(
-            "INSERT INTO players (username, password_hash, is_ai, source) VALUES (?, ?, 1, 'mcp')",
-            (username, hash_password(password)),
-        )
-        return await fetch_one("SELECT * FROM players WHERE id = ?", (pid,))
+async def _mcp_player(path_token: str | None) -> dict:
+    if path_token:
+        db = await get_db()
+        try:
+            return await get_player_from_token(db, path_token)
+        finally:
+            await db.close()
     pid = await execute("INSERT INTO players (is_guest, is_ai, source) VALUES (1, 1, 'mcp')")
     return await fetch_one("SELECT * FROM players WHERE id = ?", (pid,))
+
+
+async def get_player_from_token(db, path_token: str | None):
+    """
+    path_token -> toy_users.id -> players.user_id.
+    If no player exists, create a passwordless AI player bound to that toy_user.
+    """
+    if not path_token:
+        raise HTTPException(status_code=401, detail="path_token 必填")
+    user_id = _account_user_id(path_token)
+    async with db.execute(
+        "SELECT * FROM toy_users WHERE id = ? AND deleted_at IS NULL",
+        (user_id,),
+    ) as cur:
+        toy_user = await cur.fetchone()
+    if not toy_user:
+        raise HTTPException(status_code=401, detail="账号不存在或已删除")
+
+    await db.execute("UPDATE toy_users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
+    async with db.execute("SELECT * FROM players WHERE user_id = ?", (user_id,)) as cur:
+        player = await cur.fetchone()
+    async with db.execute(
+        "SELECT * FROM players WHERE username = ? AND (user_id IS NULL OR user_id = ?)",
+        (toy_user["username"], user_id),
+    ) as cur:
+        named_player = await cur.fetchone()
+    if named_player:
+        if player and player["id"] != named_player["id"]:
+            await db.execute("UPDATE players SET user_id = NULL WHERE id = ?", (player["id"],))
+        player = named_player
+    if player:
+        await db.execute(
+            """
+            UPDATE players
+            SET user_id = ?, username = ?, is_guest = 0, is_ai = 1, source = 'mcp',
+                last_active_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (user_id, toy_user["username"], player["id"]),
+        )
+        await db.commit()
+        async with db.execute("SELECT * FROM players WHERE id = ?", (player["id"],)) as cur:
+            return dict(await cur.fetchone())
+
+    cur = await db.execute(
+        """
+        INSERT INTO players (username, user_id, is_guest, is_ai, is_admin, source)
+        VALUES (?, ?, 0, 1, ?, 'mcp')
+        """,
+        (toy_user["username"], user_id, 1 if toy_user["is_admin"] else 0),
+    )
+    await db.commit()
+    async with db.execute("SELECT * FROM players WHERE id = ?", (cur.lastrowid,)) as cur:
+        return dict(await cur.fetchone())
+
+
+async def _register_toy_user(username: str | None, password: str | None) -> dict:
+    username = clean_content(username or "", 32).strip()
+    password = password or ""
+    if len(username) < 2 or len(username) > 20:
+        raise HTTPException(status_code=400, detail="用户名长度须为 2-20 个字符")
+    if not re.fullmatch(r"[a-zA-Z0-9_\u4e00-\u9fff]+", username):
+        raise HTTPException(status_code=400, detail="用户名只能包含字母、数字、下划线和中文")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少 6 位")
+    if await fetch_one("SELECT id FROM toy_users WHERE username = ?", (username,)):
+        raise HTTPException(status_code=400, detail="用户名已存在，如需找回请联系管理员")
+    user_id = await execute(
+        "INSERT INTO toy_users (username, password_hash, is_ai) VALUES (?, ?, 1)",
+        (username, hash_password(password)),
+    )
+    toy_user = await fetch_one("SELECT * FROM toy_users WHERE id = ?", (user_id,))
+    return {
+        "token": _create_account_token(toy_user),
+        "user": _public_toy_user(toy_user),
+        "message": "注册成功。让你的人类把 MCP 地址改为 https://toy.cedarstar.org/{token} 后即可获得持久身份，无需再次登录。",
+    }
+
+
+def _public_toy_user(user: dict) -> dict:
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "is_ai": bool(user.get("is_ai")),
+        "is_admin": bool(user.get("is_admin")),
+        "created_at": user.get("created_at"),
+        "last_active_at": user.get("last_active_at"),
+    }
+
+
+def _create_account_token(user: dict) -> str:
+    payload = {
+        "user_id": int(user["id"]),
+        "username": user["username"],
+        "is_ai": bool(user.get("is_ai")),
+        "is_admin": bool(user.get("is_admin")),
+    }
+    return _jwt_encode(payload)
+
+
+def _account_user_id(path_token: str) -> int:
+    try:
+        payload = _jwt_decode(path_token)
+        return int(payload["user_id"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="登录已失效") from None
+
+
+def _jwt_encode(payload: dict) -> str:
+    header = {"alg": JWT_ALGORITHM, "typ": "JWT"}
+    header_part = _b64url_encode(json.dumps(header, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    payload_part = _b64url_encode(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    signing_input = f"{header_part}.{payload_part}".encode("ascii")
+    signature = hmac.new(TOY_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    return f"{header_part}.{payload_part}.{_b64url_encode(signature)}"
+
+
+def _jwt_decode(token: str) -> dict:
+    try:
+        header_part, payload_part, signature_part = token.split(".", 2)
+        signing_input = f"{header_part}.{payload_part}".encode("ascii")
+        expected = hmac.new(TOY_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+        actual = _b64url_decode(signature_part)
+        if not hmac.compare_digest(expected, actual):
+            raise ValueError("bad signature")
+        header = json.loads(_b64url_decode(header_part).decode("utf-8"))
+        if header.get("alg") != JWT_ALGORITHM:
+            raise ValueError("bad algorithm")
+        payload = json.loads(_b64url_decode(payload_part).decode("utf-8"))
+        exp = payload.get("exp")
+        if exp is not None and int(exp) < int(time.time()):
+            raise ValueError("expired")
+        return payload
+    except Exception as exc:
+        raise ValueError("bad token") from exc
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode("ascii"))

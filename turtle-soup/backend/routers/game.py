@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 
 import judge
@@ -49,6 +51,18 @@ async def _pending_hint(room_id: str) -> dict | None:
     )
 
 
+async def _system_notice(room_id: str, player_id: int | None = None) -> dict:
+    log_id = await execute(
+        "INSERT INTO game_logs (room_id, type, content) VALUES (?, 'system', ?)",
+        (room_id, judge.SYSTEM_BUSY_NOTICE),
+    )
+    if player_id is not None:
+        await touch_room(room_id, player_id)
+    payload = await _log_payload(log_id)
+    await broadcast(room_id, "new_log", payload)
+    return payload | {"system_error": True}
+
+
 async def _offer_hint(room: dict, ask_count: int, *, manual: bool = False) -> dict | None:
     logs = await fetch_all("SELECT * FROM game_logs WHERE room_id = ? ORDER BY id ASC", (room["id"],))
     hint = await judge.generate_hint(room["surface"], room["answer"], logs)
@@ -91,6 +105,13 @@ async def _maybe_auto_hint(room: dict, ask_count: int) -> None:
     await _offer_hint(room, ask_count)
 
 
+async def _maybe_auto_hint_safely(room: dict, ask_count: int) -> None:
+    try:
+        await _maybe_auto_hint(room, ask_count)
+    except Exception:
+        pass
+
+
 @router.post("/ask")
 async def ask(body: ContentBody, player: dict = Depends(current_player)):
     question = clean_content(body.content, 200)
@@ -120,7 +141,12 @@ async def ask(body: ContentBody, player: dict = Depends(current_player)):
             )
             if int(too_fast["c"]) >= n:
                 raise HTTPException(status_code=429, detail="AI 提问太快，请稍后再试")
-    result = await judge.judge_ask(room["surface"], room["answer"], question)
+    try:
+        result = await judge.judge_ask(room["surface"], room["answer"], question)
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            return await _system_notice(body.room_id, player["id"])
+        raise
     judgment = result["judgment"]
     log_content = result.get("content_override") or question
     log_id = await execute(
@@ -145,7 +171,7 @@ async def ask(body: ContentBody, player: dict = Depends(current_player)):
         await broadcast(body.room_id, "new_log", clue_payload)
 
     ask_count = await _ask_count(body.room_id)
-    await _maybe_auto_hint(room, ask_count)
+    asyncio.create_task(_maybe_auto_hint_safely(room, ask_count))
     return payload
 
 
@@ -154,7 +180,12 @@ async def guess(body: ContentBody, player: dict = Depends(current_player)):
     guess_text = clean_content(body.content, 200)
     room = await _room(body.room_id)
     _ensure_active(room)
-    result = await judge.judge_guess(room["surface"], room["answer"], guess_text)
+    try:
+        result = await judge.judge_guess(room["surface"], room["answer"], guess_text)
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            return await _system_notice(body.room_id, player["id"])
+        raise
     correct = bool(result["success"])
     score = int(result["score"])
     log_content = result.get("error") or f"{guess_text}\n还原度：{score}%"

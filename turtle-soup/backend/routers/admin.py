@@ -21,6 +21,13 @@ def _optional_clean(value: str, limit: int) -> str | None:
     return clean_content(text, limit) if text else None
 
 
+async def _sync_toy_user_admin(player: dict, enabled: bool) -> None:
+    if player.get("user_id"):
+        await execute("UPDATE toy_users SET is_admin = ? WHERE id = ?", (1 if enabled else 0, player["user_id"]))
+    elif player.get("username"):
+        await execute("UPDATE toy_users SET is_admin = ? WHERE username = ?", (1 if enabled else 0, player["username"]))
+
+
 class AdminPasswordBody(BaseModel):
     password: str
 
@@ -208,21 +215,28 @@ async def create_player(body: PlayerBody, admin: dict = Depends(admin_player)):
 @router.put("/players/{player_id}")
 async def update_player(player_id: int, body: PlayerBody, admin: dict = Depends(admin_player)):
     del admin
-    existing = await fetch_one("SELECT id FROM players WHERE id = ?", (player_id,))
+    existing = await fetch_one("SELECT id, username, user_id FROM players WHERE id = ?", (player_id,))
     if not existing:
         raise HTTPException(status_code=404, detail="玩家不存在")
     username = _optional_clean(body.username, 32)
+    enabled = bool(body.is_admin)
     await execute(
         "UPDATE players SET username = ?, is_guest = ?, is_ai = ?, is_admin = ?, source = ? WHERE id = ?",
-        (username, 1 if body.is_guest else 0, 1 if body.is_ai else 0, 1 if body.is_admin else 0, _source(body.source), player_id),
+        (username, 1 if body.is_guest else 0, 1 if body.is_ai else 0, 1 if enabled else 0, _source(body.source), player_id),
     )
+    await _sync_toy_user_admin(existing | {"username": username or existing.get("username")}, enabled)
     return {"ok": True}
 
 
 @router.patch("/players/{player_id}/admin")
 async def set_admin(player_id: int, enabled: int, admin: dict = Depends(admin_player)):
     del admin
-    await execute("UPDATE players SET is_admin = ? WHERE id = ?", (1 if enabled else 0, player_id))
+    player = await fetch_one("SELECT id, username, user_id FROM players WHERE id = ?", (player_id,))
+    if not player:
+        raise HTTPException(status_code=404, detail="玩家不存在")
+    is_enabled = bool(enabled)
+    await execute("UPDATE players SET is_admin = ? WHERE id = ?", (1 if is_enabled else 0, player_id))
+    await _sync_toy_user_admin(player, is_enabled)
     return {"ok": True}
 
 

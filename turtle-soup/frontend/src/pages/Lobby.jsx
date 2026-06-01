@@ -158,6 +158,7 @@ export default function Lobby() {
               <option value={random?.id || ''}>{random ? `#${random.id} ${random.title || '随机题'}` : '经典推理题库'}</option>
             </select>
           </label>
+          <p className="terminal-note">题库抽取的大多微恐，请酌情选择。</p>
           <div className="terminal-preview" aria-live="polite">
             <p>&gt; 正在等待选题...</p>
             <p>&gt; 当前题目：<b>{random?.title || '尚未抽取'}</b></p>

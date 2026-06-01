@@ -140,7 +140,9 @@ export default function Room() {
     try {
       const entry = await post(`/game/${kind}`, { room_id: roomId, content })
       setLogs((items) => upsertLog(items, entry))
-      setContent('')
+      if (!entry.system_error) {
+        setContent('')
+      }
     } catch (err) {
       alert(err.message || '发送失败')
     } finally {
