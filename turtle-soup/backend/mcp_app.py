@@ -13,6 +13,7 @@ from auth_utils import hash_password
 from database import execute, fetch_all, fetch_one, get_db
 from models import ContentBody, GuessBody, HintRequestBody, HintResponseBody, NoteBody, RoomCreateBody
 from routers.game import ask as game_ask
+from routers.game import _ask_impl
 from routers.game import generate as game_generate
 from routers.game import guess as game_guess
 from routers.game import hint_request as game_hint_request
@@ -145,7 +146,11 @@ async def play(body: PlayBody):
             raise HTTPException(status_code=404, detail="房间不存在")
         if room["status"] == "finished":
             raise HTTPException(status_code=400, detail="房间已结束，无法继续提问")
-        return await game_ask(ContentBody(room_id=body.room_id, content=clean_content(body.content, 200)), player)
+        payload, hint_task = await _ask_impl(ContentBody(room_id=body.room_id, content=clean_content(body.content, 200)), player)
+        hint_result = await hint_task
+        if hint_result:
+            payload["auto_hint"] = hint_result
+        return payload
     if body.action == "guess":
         if not body.room_id or not body.content:
             raise HTTPException(status_code=400, detail="room_id 和 content 必填")

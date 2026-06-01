@@ -8,5 +8,5 @@ const JUDGMENT_STYLES = {
 export default function JudgeBadge({ value }) {
   if (!value || value === 'game_over' || value === 'auto_hint') return null
   const [label, cls] = JUDGMENT_STYLES[value] || [value, 'judgment-other']
-  return <span className={`log-judgment ${cls}`}>&gt; {label}</span>
+  return <span className={`log-judgment ${cls}`}><span className="judgment-caret">&gt; </span>{label}</span>
 }

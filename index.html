@@ -1437,6 +1437,7 @@
       area.innerHTML = `
         <span class="user-name">● ${me.user.username}</span>
         <span class="user-actions">
+          ${me.user.is_admin ? '<a class="pixel-btn secondary desktop-only" href="/admin">管理</a>' : ''}
           <button class="pixel-btn secondary desktop-only" id="historyOpen" type="button">历史</button>
           <button class="pixel-btn secondary desktop-only" id="bindOpen" type="button">绑定</button>
           <button class="pixel-btn secondary desktop-only" id="logoutBtn" type="button">登出</button>
@@ -1467,6 +1468,7 @@
       content.innerHTML = `
         <p class="desc">用户：${me.user.username}</p>
         <ol class="rank-list">${bindings}</ol>
+        ${me.user.is_admin ? '<a class="pixel-btn secondary" href="/admin" style="margin-bottom:10px">管理后台</a>' : ''}
         <button class="pixel-btn" id="mineBind" type="button">绑定</button>
         <button class="pixel-btn secondary" id="mineLogout" type="button" style="margin-top:10px">登出</button>
       `;

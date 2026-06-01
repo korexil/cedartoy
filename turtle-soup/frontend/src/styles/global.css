@@ -288,6 +288,10 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
   color: #fff;
 }
 
+.lobby-title-group {
+  display: contents;
+}
+
 .lobby-title {
   display: inline-flex;
   gap: 12px;
@@ -507,6 +511,10 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
   padding: 8px 14px;
   font-size: 16px;
   font-family: "Silkscreen", cursive;
+}
+
+.rooms-refresh {
+  display: none;
 }
 
 .pixel-room-list {
@@ -1041,11 +1049,32 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
   }
   .lobby-topbar {
     grid-template-columns: auto 1fr auto;
-    gap: 10px;
-    padding: 10px 14px;
+    gap: 8px;
+    padding: 8px 12px;
+    min-height: auto;
+    border-bottom-width: 3px;
   }
-  .lobby-title { font-size: 20px; }
-  .lobby-status { order: 4; grid-column: 1 / -1; justify-self: stretch; justify-content: center; font-size: 13px; }
+  .lobby-back { width: 32px; height: 32px; }
+  .lobby-actions { gap: 8px; }
+  .lobby-actions .avatar-pill { width: 28px; height: 28px; font-size: 11px; }
+  .room-page .lobby-actions .close-room-btn { min-height: 26px; padding: 4px 8px; font-size: 11px; }
+  .lobby-title-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .lobby-title { font-size: 16px; gap: 6px; white-space: nowrap; }
+  .lobby-title .pixel-mark { width: 18px; height: 18px; font-size: 10px; }
+  .lobby-status {
+    padding: 0;
+    background: none;
+    border-radius: 0;
+    font-size: 11px;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .lobby-status .online-dot { width: 6px; height: 6px; }
   .lobby-actions a:not(.avatar-pill), .lobby-actions button { display: none; }
   .lobby-main {
     display: block;
@@ -1062,6 +1091,12 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
   }
   .rooms-head h1 { font-size: 18px; }
   .rooms-head button { display: none; }
+  .rooms-head .rooms-refresh {
+    display: inline-flex;
+    min-height: 28px;
+    padding: 4px 8px;
+    border-width: 2px;
+  }
   .room-tag-filters { gap: 6px; }
   .room-tag-filter {
     min-height: 30px;
@@ -1535,11 +1570,26 @@ body:has(.room-page) {
 
 .room-surface-scroll {
   min-height: 0;
-  overflow: auto;
+  overflow-y: scroll;
   padding: 16px;
   color: var(--pixel-text);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(190, 177, 209, 0.8) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: var(--pixel-purple-dark) rgba(190, 177, 209, 0.24);
+}
+
+.room-surface-scroll::-webkit-scrollbar {
+  width: 12px;
+}
+
+.room-surface-scroll::-webkit-scrollbar-track {
+  background: rgba(190, 177, 209, 0.3);
+  border-left: 1px solid rgba(155, 141, 181, 0.42);
+}
+
+.room-surface-scroll::-webkit-scrollbar-thumb {
+  background: var(--pixel-purple-dark);
+  border: 2px solid rgba(255, 255, 255, 0.76);
 }
 
 .room-surface-panel h1 {
@@ -1615,6 +1665,15 @@ body:has(.room-page) {
 .room-surface-panel .terminal-head small {
   color: var(--pixel-purple-darker);
   font-size: 10px;
+}
+
+.surface-toggle {
+  display: none;
+  border: 2px solid var(--pixel-purple-light);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--pixel-purple-darker);
+  padding: 2px;
+  cursor: pointer;
 }
 
 .session-log-stream {
@@ -2087,10 +2146,13 @@ body:has(.room-page) {
   }
   .room-main {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(180px, 34vh) minmax(0, 1fr);
-    gap: 12px;
-    padding: 12px 12px 8px;
+    grid-template-rows: minmax(120px, 22vh) minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px 10px 8px;
     overflow: hidden;
+  }
+  .room-main.surface-collapsed {
+    grid-template-rows: auto minmax(0, 1fr);
   }
   .room-play {
     min-height: 0;
@@ -2098,11 +2160,193 @@ body:has(.room-page) {
   .room-surface-panel {
     min-height: 0;
   }
+  .room-surface-panel.collapsed .room-surface-scroll {
+    display: none;
+  }
+  .surface-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 26px;
+    min-width: 26px;
+  }
+  .room-surface-scroll {
+    padding: 10px;
+  }
+  .room-surface-panel h1 {
+    font-size: 16px;
+    margin: 0 0 10px;
+  }
+  .room-surface-panel p {
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 0 0 10px;
+  }
+  .room-surface-panel .room-meta {
+    margin-bottom: 8px;
+    gap: 4px;
+  }
+  .room-surface-panel .soup-badge {
+    min-height: auto;
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+  .room-surface-panel .room-stats {
+    font-size: 10px;
+  }
+  .room-surface-panel .terminal-head strong {
+    font-size: 14px;
+  }
+  .session-log-panel .terminal-head {
+    display: flex;
+    padding: 4px 8px;
+    gap: 0;
+    min-height: 24px;
+  }
+  .session-log-panel .terminal-head .lights,
+  .session-log-panel .terminal-head small {
+    display: none;
+  }
+  .session-log-panel .terminal-head strong {
+    font-size: 12px;
+    line-height: 1.2;
+  }
+  .session-log-stream {
+    padding: 8px 7px;
+  }
+  .session-log-body {
+    gap: 7px;
+  }
+  .session-log-line {
+    grid-template-columns: 42px 38px minmax(0, 1fr);
+    gap: 4px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .session-log-line.system,
+  .session-log-line.system-notice {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+  .log-time {
+    font-size: 9px;
+    line-height: 1.45;
+  }
+  .log-judgment {
+    font-size: 9px;
+    line-height: 1.45;
+    text-align: left;
+    overflow: hidden;
+  }
+  .log-judgment .judgment-caret {
+    display: none;
+  }
+  .log-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .log-hint-banner {
+    padding: 8px 9px;
+    border-width: 1px;
+    font-size: 12px;
+  }
+  .log-hint-label {
+    margin-bottom: 4px;
+    font-size: 12px;
+  }
+  .log-hint-banner p {
+    margin-bottom: 7px;
+    line-height: 1.45;
+  }
+  .hint-actions {
+    gap: 6px;
+  }
+  .hint-actions button {
+    min-height: 28px;
+    padding: 4px 9px;
+    border-width: 1px;
+    font-size: 12px;
+  }
+  .hint-actions .pixel-primary {
+    border-right-width: 2px;
+    border-bottom-width: 2px;
+  }
+  .hint-resolved-tag {
+    font-size: 9px;
+  }
+  .log-game-over {
+    padding: 10px;
+    border-width: 2px;
+  }
+  .log-game-over-label,
+  .log-game-over p {
+    font-size: 12px;
+  }
+  .notepad-drawer-panel {
+    width: min(280px, calc(100vw - 34px));
+  }
+  .notepad-drawer-tab {
+    min-width: 30px;
+    min-height: 100px;
+    padding: 8px 5px;
+    border-left-width: 3px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+  }
+  .notepad-drawer-tab span {
+    font-size: 10px;
+  }
   .composer-row {
     grid-template-columns: 1fr auto;
+    gap: 6px;
+  }
+  .room-composer {
+    gap: 6px;
+    padding: 7px 8px;
+    border-width: 2px;
+    box-shadow: 3px 3px 0 rgba(190, 177, 209, 0.3);
   }
   .composer-head {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
+    gap: 8px;
+    padding-bottom: 2px;
+    border-bottom-width: 1px;
+  }
+  .composer-tabs {
+    gap: 10px;
+  }
+  .composer-tabs button {
+    padding: 3px 0;
+    font-size: 13px;
+    line-height: 1.2;
+  }
+  .composer-tabs button.active {
+    box-shadow: inset 0 -2px 0 var(--pixel-pink);
+  }
+  .hint-request-btn {
+    min-height: 26px;
+    padding: 3px 7px;
+    border-width: 1px;
+    gap: 4px;
+    font-size: 10px;
+  }
+  .hint-request-btn span {
+    font-size: 10px;
+  }
+  .composer-row textarea {
+    min-height: 38px;
+    max-height: 56px;
+    padding: 5px 7px;
+    border-width: 1px;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  .composer-row .send-btn,
+  .composer-row .pixel-primary {
+    min-height: 34px;
+    padding: 0 11px;
+    border-right-width: 3px;
+    border-bottom-width: 3px;
+    font-size: 13px;
   }
 }

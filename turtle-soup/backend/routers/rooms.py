@@ -96,7 +96,6 @@ async def create_room(body: RoomCreateBody, player: dict = Depends(current_playe
 
 @router.get("/{room_id}")
 async def get_room(room_id: str, player: dict = Depends(current_player)):
-    del player
     room = await fetch_one(
         """
         SELECT r.*,
@@ -133,7 +132,12 @@ async def get_room(room_id: str, player: dict = Depends(current_player)):
     for note in notes:
         if not (note.get("username") or "").strip():
             note["username"] = f"游客{note['player_id']}"
+    manual_hint_row = await fetch_one(
+        "SELECT COUNT(*) AS c FROM game_logs WHERE room_id = ? AND player_id = ? AND type = 'hint_offer'",
+        (room_id, player["id"]),
+    )
     data = _public_room(room)
+    data["manual_hint_count"] = int(manual_hint_row["c"] if manual_hint_row else 0)
     data["logs"] = logs
     data["notes"] = notes
     return data

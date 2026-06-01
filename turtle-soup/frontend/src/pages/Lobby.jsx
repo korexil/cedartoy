@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, History, ListPlus, LogOut, Plus, Search, Shield, Trophy, UserRound } from 'lucide-react'
+import { ArrowLeft, History, ListPlus, LogOut, Plus, RefreshCw, Search, Shield, Trophy, UserRound } from 'lucide-react'
 import { api, ensureGuestToken, logoutToGuest, post } from '../api'
 import Leaderboard from '../components/Leaderboard.jsx'
 import LoginModal from '../components/LoginModal.jsx'
@@ -206,8 +206,10 @@ export default function Lobby() {
     <div className="lobby-page">
       <header className="lobby-topbar">
         <a className="lobby-back" href="/" aria-label="返回首页"><ArrowLeft size={22} /></a>
-        <div className="lobby-title"><span className="pixel-mark">▣</span><span>游戏大厅</span></div>
-        <div className="lobby-status"><span className="online-dot" /> 在线：<b>{String(Math.max(online, activeRooms.length)).padStart(2, '0')}</b><span>房间：<b>{String(activeRooms.length).padStart(2, '0')}</b></span></div>
+        <div className="lobby-title-group">
+          <div className="lobby-title"><span className="pixel-mark">▣</span><span>游戏大厅</span></div>
+          <div className="lobby-status"><span className="online-dot" /> 在线：<b>{String(Math.max(online, activeRooms.length)).padStart(2, '0')}</b><span>房间：<b>{String(activeRooms.length).padStart(2, '0')}</b></span></div>
+        </div>
         <nav className="lobby-actions">
           {me?.is_admin && <Link to="/add-puzzle"><ListPlus size={17} />加题</Link>}
           {me?.is_admin && <Link to="/admin"><Shield size={17} />管理</Link>}
@@ -254,6 +256,7 @@ export default function Lobby() {
         {bottomTab === 'rooms' && <section className="rooms-area">
           <div className="rooms-head">
             <h1><span>☷</span>活跃房间</h1>
+            <button type="button" className="rooms-refresh" onClick={load} aria-label="刷新"><RefreshCw size={16} /></button>
             <button type="button" onClick={load}>按热度排序</button>
           </div>
           <div className="rooms-toolbar">

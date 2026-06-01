@@ -18,11 +18,13 @@ function isResolved(log) {
   return Number(log.resolved) === 1
 }
 
-function HintBanner({ log, onRespond, busy }) {
+function HintBanner({ log, onRespond, busy, currentPlayerId }) {
   const resolved = isResolved(log)
   const accepted = log.hint_accepted
   const hintText = log.hint_text || ''
-  let body = '系统提供了一条线索，是否接受查看？'
+  const isMine = Number(log.player_id) === Number(currentPlayerId)
+  const requester = log.username || (log.player_id ? `游客${log.player_id}` : '')
+  let body = isMine ? '系统提供了一条线索，是否接受查看？' : `${requester || '玩家'}请求了一条提示，等待处理。`
   if (resolved && accepted === false) {
     body = '已拒绝该提示'
   } else if (resolved && accepted && hintText) {
@@ -33,7 +35,7 @@ function HintBanner({ log, onRespond, busy }) {
     <div className={`log-hint-banner hint-offer${resolved ? ' readonly' : ''}`} role="region" aria-label="请求提示">
       <div className="log-hint-label">&gt; 【请求提示】</div>
       <p>{body}</p>
-      {!resolved && (
+      {!resolved && isMine && (
         <div className="hint-actions">
           <button type="button" disabled={busy} onClick={() => onRespond(log.id, false)}>拒绝</button>
           <button type="button" className="pixel-primary" disabled={busy} onClick={() => onRespond(log.id, true)}>接受</button>
@@ -82,7 +84,7 @@ function systemNoticeContent(content) {
   return ''
 }
 
-export default function GameLog({ logs, onReport, onHintRespond, hintBusy }) {
+export default function GameLog({ logs, onReport, onHintRespond, hintBusy, currentPlayerId }) {
   const ordered = sortLogs(logs)
 
   return (
@@ -98,6 +100,7 @@ export default function GameLog({ logs, onReport, onHintRespond, hintBusy }) {
               log={log}
               busy={hintBusy}
               onRespond={onHintRespond}
+              currentPlayerId={currentPlayerId}
             />
           )
         }

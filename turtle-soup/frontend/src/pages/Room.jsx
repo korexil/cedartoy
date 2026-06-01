@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
+  ChevronDown,
+  ChevronUp,
   ListPlus,
   LogOut,
   Shield,
@@ -48,6 +50,7 @@ export default function Room() {
   const [notesOpen, setNotesOpen] = useState(false)
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)
   const [closeLoading, setCloseLoading] = useState(false)
+  const [surfaceCollapsed, setSurfaceCollapsed] = useState(false)
   const [hintConfirmOpen, setHintConfirmOpen] = useState(false)
   const logRef = useRef(null)
 
@@ -83,11 +86,15 @@ export default function Room() {
         const data = JSON.parse(event.data)
         setLogs((items) => upsertLog(items, {
           id: data.log_id,
+          player_id: data.player_id,
           type: 'hint_offer',
           hint_text: data.hint_text,
           content: data.hint_text,
           resolved: 0,
           room_id: roomId,
+          username: data.username,
+          is_guest: data.is_guest,
+          is_ai: data.is_ai,
         }))
       })
       es.addEventListener('hint_resolved', (event) => {
@@ -127,7 +134,11 @@ export default function Room() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' })
   }, [logs])
 
-  const pendingHint = logs.some((row) => row.type === 'hint_offer' && Number(row.resolved) !== 1)
+  const pendingHint = logs.some((row) => (
+    row.type === 'hint_offer'
+    && Number(row.resolved) !== 1
+    && Number(row.player_id) === Number(me?.id)
+  ))
   const manualUsed = Number(room?.manual_hint_count || 0)
   const hintRemaining = Math.max(0, 3 - manualUsed)
   const finished = room?.status === 'finished'
@@ -163,11 +174,15 @@ export default function Room() {
       if (data.log_id) {
         setLogs((items) => upsertLog(items, {
           id: data.log_id,
+          player_id: me?.id,
           type: 'hint_offer',
           hint_text: data.hint_text,
           content: data.hint_text,
           resolved: 0,
           room_id: roomId,
+          username: me?.username,
+          is_guest: me?.is_guest,
+          is_ai: me?.is_ai,
         }))
       }
     } catch (err) {
@@ -234,11 +249,13 @@ export default function Room() {
     <div className="room-page">
       <header className="lobby-topbar">
         <Link className="lobby-back" to="/" aria-label="返回大厅"><ArrowLeft size={22} /></Link>
-        <div className="lobby-title"><span className="pixel-mark">▣</span><span>游戏大厅</span></div>
-        <div className={`lobby-status${finished ? '' : ' playing'}`}>
-          <span className="online-dot" />
-          房间 <b>#{room.id}</b>
-          <span>{finished ? '已结束' : '进行中'}</span>
+        <div className="lobby-title-group">
+          <div className="lobby-title"><span className="pixel-mark">▣</span><span>游戏大厅</span></div>
+          <div className={`lobby-status${finished ? '' : ' playing'}`}>
+            <span className="online-dot" />
+            房间 <b>#{room.id}</b>
+            <span>{finished ? '已结束' : '进行中'}</span>
+          </div>
         </div>
         <nav className="lobby-actions">
           {me?.is_admin && <Link to="/add-puzzle"><ListPlus size={17} />加题</Link>}
@@ -261,12 +278,14 @@ export default function Room() {
         </nav>
       </header>
 
-      <div className="room-main">
-        <aside className="room-surface-panel">
+      <div className={`room-main${surfaceCollapsed ? ' surface-collapsed' : ''}`}>
+        <aside className={`room-surface-panel${surfaceCollapsed ? ' collapsed' : ''}`}>
           <div className="terminal-head">
             <span className="lights"><i /><i /><i /></span>
             <strong>汤面</strong>
-            <small>全展开</small>
+            <button type="button" className="surface-toggle" onClick={() => setSurfaceCollapsed(!surfaceCollapsed)} aria-label={surfaceCollapsed ? '展开汤面' : '收起汤面'}>
+              {surfaceCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            </button>
           </div>
           <div className="room-surface-scroll">
             <h1>{soupName(room)}</h1>
@@ -295,6 +314,7 @@ export default function Room() {
                 onReport={report}
                 onHintRespond={respondHint}
                 hintBusy={hintBusy}
+                currentPlayerId={me?.id}
               />
             </div>
           </section>

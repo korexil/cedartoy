@@ -13,6 +13,15 @@ from utils import clean_content
 
 router = APIRouter(prefix="/game", tags=["game"])
 logger = logging.getLogger(__name__)
+_hint_locks: dict[str, asyncio.Lock] = {}
+
+
+def _hint_lock(room_id: str) -> asyncio.Lock:
+    lock = _hint_locks.get(room_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _hint_locks[room_id] = lock
+    return lock
 
 
 async def _room(room_id: str) -> dict:
@@ -46,11 +55,24 @@ async def _ask_count(room_id: str) -> int:
     return int(row["c"])
 
 
-async def _pending_hint(room_id: str) -> dict | None:
+async def _pending_hint(room_id: str, player_id: int | None = None) -> dict | None:
+    if player_id is not None:
+        return await fetch_one(
+            "SELECT id FROM game_logs WHERE room_id = ? AND player_id = ? AND type = 'hint_offer' AND resolved = 0",
+            (room_id, player_id),
+        )
     return await fetch_one(
         "SELECT id FROM game_logs WHERE room_id = ? AND type = 'hint_offer' AND resolved = 0",
         (room_id,),
     )
+
+
+async def _manual_hint_count(room_id: str, player_id: int) -> int:
+    row = await fetch_one(
+        "SELECT COUNT(*) AS c FROM game_logs WHERE room_id = ? AND player_id = ? AND type = 'hint_offer'",
+        (room_id, player_id),
+    )
+    return int(row["c"] if row else 0)
 
 
 async def _system_notice(room_id: str, player_id: int | None = None) -> dict:
@@ -65,57 +87,78 @@ async def _system_notice(room_id: str, player_id: int | None = None) -> dict:
     return payload | {"system_error": True}
 
 
-async def _offer_hint(room: dict, ask_count: int, *, manual: bool = False) -> dict | None:
-    if manual and await _pending_hint(room["id"]):
-        raise HTTPException(status_code=400, detail="请先处理当前提示")
-    logs = await fetch_all("SELECT * FROM game_logs WHERE room_id = ? ORDER BY id ASC", (room["id"],))
-    hint = await judge.generate_hint(room["surface"], room["answer"], logs)
-    if hint is None:
-        return None
-    if manual:
+async def _offer_hint(room: dict, ask_count: int, *, manual: bool = False, player: dict | None = None) -> dict | None:
+    player_id = int(player["id"]) if player else None
+    async with _hint_lock(room["id"]):
+        manual_count = 0
+        if manual:
+            if player_id is None:
+                raise HTTPException(status_code=400, detail="缺少玩家信息")
+            if await _pending_hint(room["id"], player_id):
+                raise HTTPException(status_code=400, detail="请先处理当前提示")
+            manual_count = await _manual_hint_count(room["id"], player_id)
+            if manual_count >= 3:
+                raise HTTPException(status_code=400, detail="手动提示次数已用完")
+        elif await _pending_hint(room["id"]):
+            return None
+
+        logs = await fetch_all("SELECT * FROM game_logs WHERE room_id = ? ORDER BY id ASC", (room["id"],))
+        hint = await judge.generate_hint(room["surface"], room["answer"], logs)
+        if hint is None:
+            return None
+        if manual:
+            hint_id = await execute(
+                "INSERT INTO game_logs (room_id, player_id, type, content, hint_text) VALUES (?, ?, 'hint_offer', ?, ?)",
+                (room["id"], player_id, f"hint:{ask_count}", hint),
+            )
+            await execute(
+                "UPDATE rooms SET last_hint_at_ask_count = ? WHERE id = ?",
+                (ask_count, room["id"]),
+            )
+            payload = {
+                "log_id": hint_id,
+                "hint_text": hint,
+                "player_id": player_id,
+                "username": player.get("username") if player else None,
+                "is_guest": player.get("is_guest") if player else None,
+                "is_ai": player.get("is_ai") if player else None,
+                "manual_hint_remaining": 3 - manual_count - 1,
+            }
+            await broadcast(room["id"], "hint_offer", payload)
+            return payload
         hint_id = await execute(
-            "INSERT INTO game_logs (room_id, type, content, hint_text) VALUES (?, 'hint_offer', ?, ?)",
-            (room["id"], f"hint:{ask_count}", hint),
+            "INSERT INTO game_logs (room_id, type, content, hint_text, judgment) VALUES (?, 'auto_hint', ?, ?, 'auto_hint')",
+            (room["id"], hint, hint),
         )
         await execute(
-            "UPDATE rooms SET manual_hint_count = manual_hint_count + 1, last_hint_at_ask_count = ? WHERE id = ?",
+            "UPDATE rooms SET last_hint_at_ask_count = ? WHERE id = ?",
             (ask_count, room["id"]),
         )
-        payload = {"log_id": hint_id, "hint_text": hint}
-        await broadcast(room["id"], "hint_offer", payload)
-        return payload
-    hint_id = await execute(
-        "INSERT INTO game_logs (room_id, type, content, hint_text, judgment) VALUES (?, 'auto_hint', ?, ?, 'auto_hint')",
-        (room["id"], hint, hint),
-    )
-    await execute(
-        "UPDATE rooms SET last_hint_at_ask_count = ? WHERE id = ?",
-        (ask_count, room["id"]),
-    )
-    payload = await _log_payload(hint_id)
-    await broadcast(room["id"], "new_log", payload)
-    return {"log_id": hint_id, "hint_text": hint}
+        payload = await _log_payload(hint_id)
+        await broadcast(room["id"], "new_log", payload)
+        return {"log_id": hint_id, "hint_text": hint}
 
 
-async def _maybe_auto_hint(room: dict, ask_count: int) -> None:
+async def _maybe_auto_hint(room: dict, ask_count: int) -> dict | None:
     trigger = int(await get_setting("hint_trigger_count", "30"))
     last_hint_at = int(room.get("last_hint_at_ask_count") or 0)
     if trigger <= 0 or ask_count < last_hint_at + trigger:
-        return
+        return None
     if await _pending_hint(room["id"]):
-        return
-    await _offer_hint(room, ask_count)
+        return None
+    return await _offer_hint(room, ask_count)
 
 
-async def _maybe_auto_hint_safely(room: dict, ask_count: int) -> None:
+async def _maybe_auto_hint_safely(room: dict, ask_count: int) -> dict | None:
     try:
-        await _maybe_auto_hint(room, ask_count)
+        return await _maybe_auto_hint(room, ask_count)
     except Exception:
         logger.exception("auto hint failed: room_id=%s ask_count=%s", room.get("id"), ask_count)
+        return None
 
 
-@router.post("/ask")
-async def ask(body: ContentBody, player: dict = Depends(current_player)):
+async def _ask_impl(body: ContentBody, player: dict) -> tuple[dict, asyncio.Task]:
+    """Core ask logic. Returns (payload, hint_task)."""
     question = clean_content(body.content, 200)
     room = await _room(body.room_id)
     _ensure_active(room)
@@ -147,7 +190,8 @@ async def ask(body: ContentBody, player: dict = Depends(current_player)):
         result = await judge.judge_ask(room["surface"], room["answer"], question)
     except HTTPException as exc:
         if exc.status_code == 503:
-            return await _system_notice(body.room_id, player["id"])
+            resp = await _system_notice(body.room_id, player["id"])
+            return resp, asyncio.create_task(asyncio.sleep(0))
         raise
     judgment = result["judgment"]
     log_content = result.get("content_override") or question
@@ -173,7 +217,13 @@ async def ask(body: ContentBody, player: dict = Depends(current_player)):
         await broadcast(body.room_id, "new_log", clue_payload)
 
     ask_count = await _ask_count(body.room_id)
-    asyncio.create_task(_maybe_auto_hint_safely(room, ask_count))
+    hint_task = asyncio.create_task(_maybe_auto_hint_safely(room, ask_count))
+    return payload, hint_task
+
+
+@router.post("/ask")
+async def ask(body: ContentBody, player: dict = Depends(current_player)):
+    payload, _ = await _ask_impl(body, player)
     return payload
 
 
@@ -231,17 +281,13 @@ async def guess(body: GuessBody, player: dict = Depends(current_player)):
 
 @router.post("/hint/request")
 async def hint_request(body: HintRequestBody, player: dict = Depends(current_player)):
-    del player
     room = await _room(body.room_id)
     _ensure_active(room)
-    manual_count = int(room.get("manual_hint_count") or 0)
-    if manual_count >= 3:
-        raise HTTPException(status_code=400, detail="手动提示次数已用完")
     ask_count = await _ask_count(body.room_id)
-    payload = await _offer_hint(room, ask_count, manual=True)
+    payload = await _offer_hint(room, ask_count, manual=True, player=player)
     if payload is None:
         raise HTTPException(status_code=503, detail="暂时无法生成提示，请稍后再试")
-    return payload | {"manual_hint_remaining": 3 - manual_count - 1}
+    return payload
 
 
 @router.post("/hint/respond")
@@ -252,6 +298,8 @@ async def hint_respond(body: HintResponseBody, player: dict = Depends(current_pl
     )
     if not hint:
         raise HTTPException(status_code=404, detail="提示不存在")
+    if hint["player_id"] is not None and int(hint["player_id"]) != int(player["id"]):
+        raise HTTPException(status_code=403, detail="只能处理自己的提示")
     if hint["resolved"]:
         raise HTTPException(status_code=409, detail="提示已处理")
     await execute("UPDATE game_logs SET resolved = 1 WHERE id = ?", (body.log_id,))

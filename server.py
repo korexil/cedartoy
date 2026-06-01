@@ -42,6 +42,7 @@ SESSIONS_DB_PATH = Path(os.getenv("SESSIONS_DB", Path(__file__).resolve().parent
 GAME_PLAYER_ID_RE = re.compile(r"^[a-zA-Z0-9]{1,10}$")
 GUIDE_DIR = Path(__file__).resolve().parent / "turtle-soup" / "backend" / "guides"
 TOY_INDEX_PATH = Path(__file__).resolve().parent / "index.html"
+ADMIN_INDEX_PATH = Path(__file__).resolve().parent / "admin.html"
 HOP_BY_HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -411,6 +412,115 @@ def _login_or_register_human(username, password):
     return _login_or_register(username, password, is_ai=0)
 
 
+def _require_admin_account(raw_token):
+    user = _current_account(raw_token)
+    if not user.get("is_admin"):
+        raise _McpError(-32003, "需要管理员权限")
+    return user
+
+
+def _admin_user_rows():
+    with _db_connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                u.id,
+                u.username,
+                u.is_ai,
+                u.is_admin,
+                u.created_at,
+                u.last_active_at,
+                u.deleted_at,
+                (SELECT COUNT(*) FROM players p WHERE p.user_id = u.id) AS soup_player_count,
+                (SELECT COUNT(*) FROM user_bindings b WHERE b.human_user_id = u.id) AS bound_ai_count,
+                (SELECT COUNT(*) FROM user_bindings b WHERE b.ai_user_id = u.id) AS bound_human_count,
+                (
+                    SELECT COUNT(*)
+                    FROM binding_tokens t
+                    WHERE t.ai_user_id = u.id
+                      AND t.used = 0
+                      AND t.expires_at > CURRENT_TIMESTAMP
+                ) AS active_binding_tokens
+            FROM toy_users u
+            ORDER BY u.deleted_at IS NOT NULL ASC, u.id DESC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _admin_update_user(user_id, body, admin_user):
+    username = (body.get("username") or "").strip()
+    if not username:
+        raise _McpError(-32602, "username 必填")
+    if len(username) < 2 or len(username) > 20:
+        raise _McpError(-32602, "用户名长度须为 2-20 个字符")
+    if not re.fullmatch(r"[a-zA-Z0-9_\u4e00-\u9fff]+", username):
+        raise _McpError(-32602, "用户名只能包含字母、数字、下划线和中文")
+    is_ai = 1 if body.get("is_ai") else 0
+    is_admin = 1 if body.get("is_admin") else 0
+    deleted = 1 if body.get("deleted") else 0
+    if int(user_id) == int(admin_user["id"]) and (not is_admin or deleted):
+        raise _McpError(-32602, "不能取消当前登录管理员的权限或软删当前账号")
+    with _db_connect() as conn:
+        existing = conn.execute("SELECT id FROM toy_users WHERE id = ?", (user_id,)).fetchone()
+        if not existing:
+            raise _McpError(-32004, "账号不存在")
+        duplicate = conn.execute(
+            "SELECT id FROM toy_users WHERE username = ? AND id <> ?",
+            (username, user_id),
+        ).fetchone()
+        if duplicate:
+            raise _McpError(-32602, "用户名已存在")
+        conn.execute(
+            """
+            UPDATE toy_users
+            SET username = ?,
+                is_ai = ?,
+                is_admin = ?,
+                deleted_at = CASE WHEN ? THEN COALESCE(deleted_at, CURRENT_TIMESTAMP) ELSE NULL END
+            WHERE id = ?
+            """,
+            (username, is_ai, is_admin, deleted, user_id),
+        )
+        conn.execute(
+            "UPDATE players SET username = ?, is_ai = ?, is_admin = ? WHERE user_id = ?",
+            (username, is_ai, is_admin, user_id),
+        )
+        conn.commit()
+    return {"ok": True}
+
+
+def _admin_reset_user_password(user_id, body):
+    password = body.get("password") or ""
+    if len(password) < 6:
+        raise _McpError(-32602, "密码至少 6 位")
+    with _db_connect() as conn:
+        existing = conn.execute("SELECT id FROM toy_users WHERE id = ?", (user_id,)).fetchone()
+        if not existing:
+            raise _McpError(-32004, "账号不存在")
+        conn.execute(
+            "UPDATE toy_users SET password_hash = ?, deleted_at = NULL WHERE id = ?",
+            (_hash_password(password), user_id),
+        )
+        conn.commit()
+    return {"ok": True}
+
+
+def _admin_release_user(user_id, admin_user):
+    if int(user_id) == int(admin_user["id"]):
+        raise _McpError(-32602, "不能释放当前登录的管理员账号")
+    with _db_connect() as conn:
+        existing = conn.execute("SELECT id FROM toy_users WHERE id = ?", (user_id,)).fetchone()
+        if not existing:
+            raise _McpError(-32004, "账号不存在")
+        conn.execute("UPDATE players SET user_id = NULL WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM binding_tokens WHERE ai_user_id = ?", (user_id,))
+        conn.execute("DELETE FROM user_bindings WHERE human_user_id = ? OR ai_user_id = ?", (user_id, user_id))
+        conn.execute("DELETE FROM toy_users WHERE id = ?", (user_id,))
+        conn.commit()
+    return {"ok": True}
+
+
 def _generate_binding_token(raw_token):
     user = _current_account(raw_token)
     if not user.get("is_ai"):
@@ -593,7 +703,7 @@ def _tool_list_games():
             {"name": "dnd", "display": "DND阵营测试", "desc": "测试你的D&D道德阵营，守序善良还是混乱邪恶？"},
         ],
         "小游戏": [
-            {"name": "turtle_soup", "display": "海龟汤（没做好）", "desc": "横向思维推理游戏，题库抽取大多微恐"},
+            {"name": "turtle_soup", "display": "海龟汤", "desc": "横向思维推理游戏，题库抽取大多微恐"},
         ],
         "提示": "用 get_guide(game) 查看具体玩法，再用 play(game, action, ...) 执行操作",
     }, ensure_ascii=False)
@@ -672,8 +782,8 @@ def _turtle_soup_guide():
             "join": "room_id -> 加入进行中的房间",
             "ask": "room_id, content -> 提问，content 最多 200 字",
             "guess": "room_id, content -> 猜汤底，content 最多 1000 字，超长会提示内容太长",
-            "hint_request": "room_id -> 主动请求一次提示，每局最多 3 次；使用裁判 LLM 池，最多尝试 3 次生成",
-            "hint_respond": "room_id, log_id, accept -> 处理提示",
+            "hint_request": "room_id -> 主动请求一次提示，每个玩家在每个房间最多 3 次；同房间提示生成会串行调用裁判 LLM，避免并发打架",
+            "hint_respond": "room_id, log_id, accept -> 处理自己请求的提示",
             "status": "room_id, log_limit(可选) -> 查看进度和问答记录；log_limit 返回最新 N 条日志；提示日志含 hint_text/resolved",
             "list_rooms": "查看大厅房间列表",
         },
@@ -748,6 +858,10 @@ class CedarToyHandler(BaseHTTPRequestHandler):
             self._handle_api_bind()
             return
 
+        if path.startswith("/api/admin/users/") and path.endswith("/reset-password"):
+            self._handle_admin_reset_password(path)
+            return
+
         if path not in ("/", "/mbti", "/dnd") and not path_token:
             self._send_json({"error": "not found"}, status=404)
             return
@@ -793,12 +907,20 @@ class CedarToyHandler(BaseHTTPRequestHandler):
             self._send_html_file(TOY_INDEX_PATH)
             return
 
+        if path == "/admin":
+            self._send_html_file(ADMIN_INDEX_PATH)
+            return
+
         if path == "/health":
             self._send_json({"ok": True, "service": "cedartoy", "endpoints": ["https://toy.cedarstar.org/mbti", "https://toy.cedarstar.org/dnd", "https://toy.cedarstar.org/"]})
             return
 
         if path == "/api/auth/me":
             self._handle_api_me()
+            return
+
+        if path == "/api/admin/users":
+            self._handle_admin_users()
             return
 
         if path == "/mbti":
@@ -815,6 +937,10 @@ class CedarToyHandler(BaseHTTPRequestHandler):
         if self._is_soup_path():
             self._proxy_to_soup()
             return
+        path = self.path.split("?", 1)[0]
+        if path.startswith("/api/admin/users/"):
+            self._handle_admin_update_user(path)
+            return
         self._send_json({"error": "not found"}, status=404)
 
     def do_PATCH(self):
@@ -827,6 +953,10 @@ class CedarToyHandler(BaseHTTPRequestHandler):
         if self._is_soup_path():
             self._proxy_to_soup()
             return
+        path = self.path.split("?", 1)[0]
+        if path.startswith("/api/admin/users/"):
+            self._handle_admin_release_user(path)
+            return
         self._send_json({"error": "not found"}, status=404)
 
     def do_OPTIONS(self):
@@ -836,7 +966,7 @@ class CedarToyHandler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.end_headers()
 
     def _request_path_and_token(self):
@@ -899,6 +1029,69 @@ class CedarToyHandler(BaseHTTPRequestHandler):
             self._send_json({"error": exc.message}, status=401 if exc.code == -32001 else 400)
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=401)
+        except Exception as exc:
+            self._send_json({"error": "server error", "detail": str(exc)}, status=500)
+
+    def _admin_error_status(self, exc):
+        if exc.code == -32001:
+            return 401
+        if exc.code == -32003:
+            return 403
+        if exc.code == -32004:
+            return 404
+        return 400
+
+    def _path_int_tail(self, path, suffix=""):
+        raw = path.removesuffix(suffix).rstrip("/").rsplit("/", 1)[-1]
+        try:
+            return int(raw)
+        except ValueError:
+            raise ValueError("Invalid user id") from None
+
+    def _handle_admin_users(self):
+        try:
+            _require_admin_account(_extract_bearer(self.headers))
+            self._send_json({"users": _admin_user_rows()})
+        except _McpError as exc:
+            self._send_json({"error": exc.message}, status=self._admin_error_status(exc))
+        except Exception as exc:
+            self._send_json({"error": "server error", "detail": str(exc)}, status=500)
+
+    def _handle_admin_update_user(self, path):
+        try:
+            admin_user = _require_admin_account(_extract_bearer(self.headers))
+            user_id = self._path_int_tail(path)
+            body = self._read_json_body()
+            self._send_json(_admin_update_user(user_id, body, admin_user))
+        except _McpError as exc:
+            self._send_json({"error": exc.message}, status=self._admin_error_status(exc))
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+        except Exception as exc:
+            self._send_json({"error": "server error", "detail": str(exc)}, status=500)
+
+    def _handle_admin_reset_password(self, path):
+        try:
+            _require_admin_account(_extract_bearer(self.headers))
+            user_id = self._path_int_tail(path, "/reset-password")
+            body = self._read_json_body()
+            self._send_json(_admin_reset_user_password(user_id, body))
+        except _McpError as exc:
+            self._send_json({"error": exc.message}, status=self._admin_error_status(exc))
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+        except Exception as exc:
+            self._send_json({"error": "server error", "detail": str(exc)}, status=500)
+
+    def _handle_admin_release_user(self, path):
+        try:
+            admin_user = _require_admin_account(_extract_bearer(self.headers))
+            user_id = self._path_int_tail(path)
+            self._send_json(_admin_release_user(user_id, admin_user))
+        except _McpError as exc:
+            self._send_json({"error": exc.message}, status=self._admin_error_status(exc))
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
         except Exception as exc:
             self._send_json({"error": "server error", "detail": str(exc)}, status=500)
 
@@ -1128,9 +1321,9 @@ def _json_rpc_error(request_id, code, message):
 
 class ThreadPoolHTTPServer(HTTPServer):
     def __init__(self, server_address, RequestHandlerClass, max_workers=MAX_WORKERS):
-        super().__init__(server_address, RequestHandlerClass)
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.worker_slots = BoundedSemaphore(max_workers)
+        super().__init__(server_address, RequestHandlerClass)
 
     def process_request(self, request, client_address):
         if not self.worker_slots.acquire(timeout=QUEUE_TIMEOUT_SECONDS):
@@ -1150,7 +1343,8 @@ class ThreadPoolHTTPServer(HTTPServer):
 
     def server_close(self):
         super().server_close()
-        self.executor.shutdown(wait=True)
+        if hasattr(self, "executor"):
+            self.executor.shutdown(wait=True)
 
     @staticmethod
     def _send_busy(request):

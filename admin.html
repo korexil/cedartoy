@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CEDAR TOY 管理后台</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --bg: #f6f2ee;
+      --panel: #fffdf9;
+      --line: #ddd4ca;
+      --text: #27231f;
+      --muted: #746b62;
+      --accent: #2f6f73;
+      --accent-dark: #215155;
+      --danger: #a33d3d;
+      --warn: #a46b26;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input {
+      font: inherit;
+    }
+    button, .button-link {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      min-height: 36px;
+      padding: 7px 11px;
+      border-radius: 6px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    button.primary, .button-link.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button.danger {
+      background: #fff7f7;
+      border-color: #e7b3b3;
+      color: var(--danger);
+    }
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      min-height: 38px;
+      padding: 8px 10px;
+      background: #fff;
+      color: var(--text);
+    }
+    .shell {
+      width: min(1180px, calc(100vw - 28px));
+      margin: 0 auto;
+      padding: 22px 0 36px;
+      display: grid;
+      gap: 14px;
+    }
+    .topbar, .toolbar, .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .topbar {
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+    .sub {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .top-actions, .toolbar, .row-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .toolbar {
+      padding: 10px;
+    }
+    .toolbar .count {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .search {
+      width: min(360px, 100%);
+    }
+    .status {
+      min-height: 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .status.error {
+      color: var(--danger);
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      min-width: 980px;
+      border-collapse: collapse;
+    }
+    th, td {
+      border-bottom: 1px solid #eee5dc;
+      padding: 10px 11px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    th {
+      background: #eee7df;
+      font-size: 13px;
+      color: #443c35;
+      white-space: nowrap;
+    }
+    td {
+      max-width: 220px;
+      overflow-wrap: anywhere;
+    }
+    tr:last-child td {
+      border-bottom: 0;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: #edf4f4;
+      color: var(--accent-dark);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge.warn {
+      background: #fff1dc;
+      color: var(--warn);
+    }
+    .badge.off {
+      background: #f0ece8;
+      color: var(--muted);
+    }
+    .empty {
+      padding: 24px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(39, 35, 31, .28);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 20;
+    }
+    .modal.show {
+      display: flex;
+    }
+    .modal-box {
+      width: min(520px, 100%);
+      max-height: calc(100vh - 36px);
+      overflow: auto;
+      background: var(--panel);
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 60px rgba(39, 35, 31, .24);
+      padding: 16px;
+      display: grid;
+      gap: 13px;
+    }
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .modal-head h2 {
+      margin: 0;
+      font-size: 20px;
+    }
+    .form {
+      display: grid;
+      gap: 11px;
+    }
+    label {
+      display: grid;
+      gap: 6px;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .checks {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #fff;
+      font-weight: 600;
+    }
+    .check input {
+      width: 18px;
+      min-height: 18px;
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    @media (max-width: 760px) {
+      .shell { width: min(100vw - 20px, 1180px); padding-top: 10px; }
+      .topbar { align-items: stretch; flex-direction: column; }
+      .top-actions { width: 100%; }
+      .top-actions > * { flex: 1 1 auto; }
+      .toolbar { display: grid; grid-template-columns: 1fr 1fr; }
+      .toolbar .search, .toolbar .count, .toolbar button { width: 100%; margin-left: 0; }
+      .table-wrap { background: transparent; border: 0; overflow: visible; }
+      table, tbody, tr, td { display: block; min-width: 0; width: 100%; }
+      thead { display: none; }
+      tbody { display: grid; gap: 10px; }
+      tr { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 0; }
+      td { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; max-width: none; padding: 8px 10px; }
+      td::before { content: attr(data-label); color: var(--muted); font-weight: 700; }
+      .row-actions button { flex: 1 1 auto; }
+      .checks { grid-template-columns: 1fr; }
+      .modal { align-items: end; padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <h1>CEDAR TOY 管理后台</h1>
+        <p class="sub">统一账号管理：查账号、重置密码、软删恢复、释放用户名。</p>
+      </div>
+      <div class="top-actions">
+        <a class="button-link" href="/">开始页</a>
+        <a class="button-link" href="/soup/admin">海龟汤管理</a>
+        <button id="logoutBtn" type="button">登出</button>
+      </div>
+    </header>
+
+    <section class="toolbar" aria-label="工具栏">
+      <input class="search" id="searchInput" type="search" placeholder="搜索用户名 / ID / 状态">
+      <button id="refreshBtn" type="button">刷新</button>
+      <span class="count" id="countText">未加载</span>
+    </section>
+
+    <p class="status" id="statusText"></p>
+
+    <section class="panel table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>用户名</th>
+            <th>类型</th>
+            <th>管理员</th>
+            <th>状态</th>
+            <th>海龟汤身份</th>
+            <th>绑定</th>
+            <th>创建时间</th>
+            <th>活跃时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="userRows"></tbody>
+      </table>
+      <div class="empty" id="emptyState" hidden>暂无账号</div>
+    </section>
+  </main>
+
+  <div class="modal" id="editModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>编辑账号</h2>
+        <button type="button" data-close>关闭</button>
+      </div>
+      <div class="form">
+        <label>
+          用户名
+          <input id="editUsername" maxlength="20">
+        </label>
+        <div class="checks">
+          <label class="check"><input id="editIsAi" type="checkbox"> AI</label>
+          <label class="check"><input id="editIsAdmin" type="checkbox"> 管理员</label>
+          <label class="check"><input id="editDeleted" type="checkbox"> 软删</label>
+        </div>
+      </div>
+      <p class="status error" id="editError"></p>
+      <div class="modal-actions">
+        <button type="button" data-close>取消</button>
+        <button class="primary" id="saveEditBtn" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const TOKEN_KEY = "cedartoy_token";
+    const USERNAME_RE = /^[a-zA-Z0-9_\u4e00-\u9fff]{2,20}$/;
+    const $ = (id) => document.getElementById(id);
+    let users = [];
+    let editing = null;
+
+    function token() {
+      return localStorage.getItem(TOKEN_KEY) || "";
+    }
+
+    function headers(json = false) {
+      return {
+        ...(json ? {"Content-Type": "application/json"} : {}),
+        ...(token() ? {Authorization: `Bearer ${token()}`} : {}),
+      };
+    }
+
+    function setStatus(message, isError = false) {
+      $("statusText").textContent = message || "";
+      $("statusText").classList.toggle("error", Boolean(isError));
+    }
+
+    function apiError(data, fallback) {
+      return data.error || data.detail || fallback || "请求失败";
+    }
+
+    async function request(path, options = {}) {
+      const res = await fetch(path, {
+        ...options,
+        headers: {...headers(Boolean(options.body)), ...(options.headers || {})},
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          throw new Error("请先在开始页登录管理员账号");
+        }
+        if (res.status === 403) throw new Error("当前账号没有管理员权限");
+        throw new Error(apiError(data));
+      }
+      return data;
+    }
+
+    function boolBadge(value, yes, no) {
+      return value ? `<span class="badge">${yes}</span>` : `<span class="badge off">${no}</span>`;
+    }
+
+    function statusBadge(user) {
+      return user.deleted_at
+        ? `<span class="badge warn">已软删</span>`
+        : `<span class="badge">正常</span>`;
+    }
+
+    function clip(value) {
+      const text = String(value ?? "");
+      return text.length > 60 ? `${text.slice(0, 60)}...` : text;
+    }
+
+    function rowMatches(user, needle) {
+      if (!needle) return true;
+      return [
+        user.id,
+        user.username,
+        user.is_ai ? "AI" : "人类",
+        user.is_admin ? "管理员" : "",
+        user.deleted_at ? "软删 已删除" : "正常",
+      ].join(" ").toLowerCase().includes(needle);
+    }
+
+    function render() {
+      const needle = $("searchInput").value.trim().toLowerCase();
+      const rows = users.filter((user) => rowMatches(user, needle));
+      $("countText").textContent = `${rows.length} / ${users.length} 个账号`;
+      $("emptyState").hidden = rows.length !== 0;
+      $("userRows").innerHTML = rows.map((user) => `
+        <tr>
+          <td data-label="ID">${user.id}</td>
+          <td data-label="用户名" title="${escapeHtml(user.username)}">${escapeHtml(clip(user.username))}</td>
+          <td data-label="类型">${boolBadge(user.is_ai, "AI", "人类")}</td>
+          <td data-label="管理员">${boolBadge(user.is_admin, "是", "否")}</td>
+          <td data-label="状态">${statusBadge(user)}</td>
+          <td data-label="海龟汤身份">${user.soup_player_count || 0}</td>
+          <td data-label="绑定">AI ${user.bound_ai_count || 0} / 人类 ${user.bound_human_count || 0} / 码 ${user.active_binding_tokens || 0}</td>
+          <td data-label="创建时间">${escapeHtml(user.created_at || "")}</td>
+          <td data-label="活跃时间">${escapeHtml(user.last_active_at || "")}</td>
+          <td data-label="操作">
+            <div class="row-actions">
+              <button type="button" data-action="edit" data-id="${user.id}">编辑</button>
+              <button type="button" data-action="reset" data-id="${user.id}">重置密码</button>
+              <button class="danger" type="button" data-action="release" data-id="${user.id}">释放用户名</button>
+            </div>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[char]));
+    }
+
+    async function loadUsers() {
+      if (!token()) {
+        setStatus("请先在开始页登录管理员账号", true);
+        $("countText").textContent = "未登录";
+        return;
+      }
+      setStatus("加载中...");
+      try {
+        const data = await request("/api/admin/users");
+        users = data.users || [];
+        render();
+        setStatus("");
+      } catch (err) {
+        users = [];
+        render();
+        setStatus(err.message, true);
+      }
+    }
+
+    function openEdit(user) {
+      editing = user;
+      $("editUsername").value = user.username || "";
+      $("editIsAi").checked = Boolean(user.is_ai);
+      $("editIsAdmin").checked = Boolean(user.is_admin);
+      $("editDeleted").checked = Boolean(user.deleted_at);
+      $("editError").textContent = "";
+      $("editModal").classList.add("show");
+    }
+
+    function closeModal() {
+      editing = null;
+      $("editModal").classList.remove("show");
+    }
+
+    async function saveEdit() {
+      if (!editing) return;
+      const username = $("editUsername").value.trim();
+      if (!USERNAME_RE.test(username)) {
+        $("editError").textContent = "用户名须为 2-20 位中文、字母、数字或下划线";
+        return;
+      }
+      try {
+        await request(`/api/admin/users/${editing.id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            username,
+            is_ai: $("editIsAi").checked ? 1 : 0,
+            is_admin: $("editIsAdmin").checked ? 1 : 0,
+            deleted: $("editDeleted").checked ? 1 : 0,
+          }),
+        });
+        closeModal();
+        await loadUsers();
+      } catch (err) {
+        $("editError").textContent = err.message;
+      }
+    }
+
+    async function resetPassword(user) {
+      const password = prompt(`给「${user.username}」设置新密码，至少 6 位`);
+      if (password === null) return;
+      if (password.length < 6) {
+        alert("密码至少 6 位");
+        return;
+      }
+      try {
+        await request(`/api/admin/users/${user.id}/reset-password`, {
+          method: "POST",
+          body: JSON.stringify({password}),
+        });
+        setStatus(`已重置「${user.username}」的密码`);
+        await loadUsers();
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+    }
+
+    async function releaseUser(user) {
+      const ok = confirm(`确认释放用户名「${user.username}」？\n\n这会删除统一账号、解除绑定和绑定码，并断开海龟汤身份的 user_id；海龟汤历史记录不会被清除。`);
+      if (!ok) return;
+      try {
+        await request(`/api/admin/users/${user.id}`, {method: "DELETE"});
+        setStatus(`已释放「${user.username}」`);
+        await loadUsers();
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+    }
+
+    $("refreshBtn").addEventListener("click", loadUsers);
+    $("searchInput").addEventListener("input", render);
+    $("saveEditBtn").addEventListener("click", saveEdit);
+    $("logoutBtn").addEventListener("click", () => {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem("cedartoy_user_id");
+      location.href = "/";
+    });
+    document.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", closeModal));
+    $("editModal").addEventListener("click", (event) => {
+      if (event.target.id === "editModal") closeModal();
+    });
+    $("userRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const user = users.find((item) => String(item.id) === button.dataset.id);
+      if (!user) return;
+      if (button.dataset.action === "edit") openEdit(user);
+      if (button.dataset.action === "reset") resetPassword(user);
+      if (button.dataset.action === "release") releaseUser(user);
+    });
+
+    loadUsers();
+  </script>
+</body>
+</html>
