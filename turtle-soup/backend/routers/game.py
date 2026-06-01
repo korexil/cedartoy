@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -11,6 +12,7 @@ from sse import broadcast
 from utils import clean_content
 
 router = APIRouter(prefix="/game", tags=["game"])
+logger = logging.getLogger(__name__)
 
 
 async def _room(room_id: str) -> dict:
@@ -64,13 +66,13 @@ async def _system_notice(room_id: str, player_id: int | None = None) -> dict:
 
 
 async def _offer_hint(room: dict, ask_count: int, *, manual: bool = False) -> dict | None:
+    if manual and await _pending_hint(room["id"]):
+        raise HTTPException(status_code=400, detail="请先处理当前提示")
     logs = await fetch_all("SELECT * FROM game_logs WHERE room_id = ? ORDER BY id ASC", (room["id"],))
     hint = await judge.generate_hint(room["surface"], room["answer"], logs)
     if hint is None:
         return None
     if manual:
-        if await _pending_hint(room["id"]):
-            raise HTTPException(status_code=400, detail="请先处理当前提示")
         hint_id = await execute(
             "INSERT INTO game_logs (room_id, type, content, hint_text) VALUES (?, 'hint_offer', ?, ?)",
             (room["id"], f"hint:{ask_count}", hint),
@@ -109,7 +111,7 @@ async def _maybe_auto_hint_safely(room: dict, ask_count: int) -> None:
     try:
         await _maybe_auto_hint(room, ask_count)
     except Exception:
-        pass
+        logger.exception("auto hint failed: room_id=%s ask_count=%s", room.get("id"), ask_count)
 
 
 @router.post("/ask")

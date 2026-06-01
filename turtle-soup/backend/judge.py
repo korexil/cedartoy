@@ -1,4 +1,6 @@
+import asyncio
 import json
+import logging
 import re
 import time
 from pathlib import Path
@@ -12,8 +14,10 @@ from database import DEFAULT_SETTINGS, fetch_all, fetch_one
 
 fail_counts: dict[int, int] = {}
 _rr_index: int = 0
+_rr_lock = asyncio.Lock()
 FAIL_LIMIT = 5
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
+logger = logging.getLogger(__name__)
 
 
 def _file_judge_prompt() -> str:
@@ -63,41 +67,49 @@ def _models_endpoint(base: str) -> str:
     return f"{base}/models"
 
 
-async def _chat(messages: list[dict[str, str]], temperature: float = 0.1) -> str:
+async def _chat(
+    messages: list[dict[str, str]],
+    temperature: float = 0.1,
+    *,
+    timeout: float = 45,
+    max_tokens: int | None = None,
+) -> str:
     global _rr_index
     errors: list[str] = []
     available = await _configs()
     if not available:
         raise HTTPException(status_code=503, detail="裁判暂时不可用，请稍后再试")
     n = len(available)
-    start = _rr_index % n
+    async with _rr_lock:
+        start = _rr_index % n
+        _rr_index = (_rr_index + 1) % n
     for i in range(n):
         cfg = available[(start + i) % n]
         cid = int(cfg["id"])
         try:
-            async with httpx.AsyncClient(timeout=45) as client:
+            payload: dict[str, Any] = {
+                "model": cfg["model"],
+                "messages": messages,
+                "temperature": temperature,
+            }
+            if max_tokens is not None:
+                payload["max_tokens"] = max_tokens
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(
                     _endpoint(cfg["api_url"]),
                     headers={"Authorization": f"Bearer {cfg['api_key']}"},
-                    json={
-                        "model": cfg["model"],
-                        "messages": messages,
-                        "temperature": temperature,
-                    },
+                    json=payload,
                 )
                 resp.raise_for_status()
                 data = resp.json()
                 text = data["choices"][0]["message"]["content"]
             fail_counts[cid] = 0
-            try:
-                _rr_index = (available.index(cfg) + 1) % n
-            except ValueError:
-                pass
             return str(text).strip()
         except Exception as exc:
             fail_counts[cid] = fail_counts.get(cid, 0) + 1
             errors.append(f"{cfg.get('name')}: {exc}")
             continue
+    logger.warning("judge chat failed across configs: %s", "; ".join(errors))
     raise HTTPException(status_code=503, detail="裁判暂时不可用，请稍后再试")
 
 
@@ -155,11 +167,14 @@ async def _chat_validated(
     messages: list[dict[str, str]],
     validator: Callable[[str], bool],
     max_retry: int = 3,
+    log_label: str = "chat",
+    **chat_kwargs: Any,
 ) -> str | None:
     for _ in range(max_retry):
-        text = await _chat(messages)
+        text = await _chat(messages, **chat_kwargs)
         if validator(text):
             return text
+        logger.warning("%s response failed validation: %r", log_label, text[:300])
     return None
 
 
@@ -389,8 +404,18 @@ async def generate_hint(surface: str, answer: str, game_log: list[dict[str, Any]
     messages = [
         {"role": "system", "content": await _get_judge_prompt()},
         {
+            "role": "system",
+            "content": (
+                "本次请求类型是用户申请提示。不要执行线索汤专用特殊规则，"
+                "不要输出【线索公布】，不要泄露完整汤底。"
+                "只给一个基于汤面、汤底和已问记录的温和提示。"
+                "必须以【提示】开头，总字数不超过 120 字。"
+            ),
+        },
+        {
             "role": "user",
             "content": (
+                "用户申请提示。\n"
                 f"汤面：{surface}\n"
                 f"汤底：{answer}\n"
                 f"已问记录：{json.dumps(compact, ensure_ascii=False)}"
@@ -401,6 +426,9 @@ async def generate_hint(surface: str, answer: str, game_log: list[dict[str, Any]
         messages,
         lambda value: value.strip().startswith("【提示】"),
         max_retry=3,
+        log_label="generate_hint",
+        timeout=12,
+        max_tokens=180,
     )
     if text is None:
         return None

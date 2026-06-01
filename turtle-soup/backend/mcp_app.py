@@ -62,7 +62,12 @@ async def play(body: PlayBody):
             raise HTTPException(status_code=404, detail="房间不存在")
         if body.log_limit is None:
             logs = await fetch_all(
-                "SELECT id, player_id, type, content, judgment, created_at FROM game_logs WHERE room_id = ? ORDER BY id ASC",
+                """
+                SELECT id, player_id, type, content, judgment, hint_text, resolved, created_at
+                FROM game_logs
+                WHERE room_id = ?
+                ORDER BY id ASC
+                """,
                 (body.room_id,),
             )
         else:
@@ -70,9 +75,9 @@ async def play(body: PlayBody):
                 raise HTTPException(status_code=400, detail="log_limit 不能为负数")
             logs = await fetch_all(
                 """
-                SELECT id, player_id, type, content, judgment, created_at
+                SELECT id, player_id, type, content, judgment, hint_text, resolved, created_at
                 FROM (
-                    SELECT id, player_id, type, content, judgment, created_at
+                    SELECT id, player_id, type, content, judgment, hint_text, resolved, created_at
                     FROM game_logs
                     WHERE room_id = ?
                     ORDER BY id DESC
