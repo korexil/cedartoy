@@ -213,7 +213,26 @@
       display: flex;
       flex-direction: column;
       gap: 14px;
-      padding-right: 6px;
+      padding-right: 4px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--purple) var(--purple-light);
+    }
+
+    .games::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .games::-webkit-scrollbar-track {
+      background: rgba(230, 223, 240, 0.55);
+    }
+
+    .games::-webkit-scrollbar-thumb {
+      background: var(--purple);
+      border: 1px solid rgba(255, 255, 255, 0.45);
+    }
+
+    .games::-webkit-scrollbar-thumb:hover {
+      background: var(--purple-dark);
     }
 
     .game-card {
@@ -257,6 +276,11 @@
       border-style: dashed;
       cursor: not-allowed;
       opacity: 0.65;
+    }
+
+    .game-card.coming-soon .card-enter {
+      color: var(--purple-darker);
+      opacity: 0.85;
     }
 
     .game-card.hidden { display: none; }
@@ -646,6 +670,16 @@
     }
 
     .nav-label { font-size: 11px; }
+    .unbind-btn {
+      border: 0;
+      background: transparent;
+      color: var(--pink-dark);
+      font-size: 13px;
+      padding: 4px 8px;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .unbind-btn:hover { color: var(--pink); }
 
     .modal, .drawer-scrim {
       position: fixed;
@@ -771,6 +805,15 @@
 
     .drawer-scrim.show .drawer {
       transform: translateY(0);
+    }
+
+    #mineDrawer.drawer-scrim {
+      justify-items: center;
+    }
+
+    #mineDrawer .drawer {
+      width: min(420px, calc(100vw - 32px));
+      max-width: 420px;
     }
 
     .drawer-head {
@@ -973,7 +1016,7 @@
         background: transparent;
         border: 0;
       }
-      .nav-label { font-size: 9px; }
+      .nav-label { font-size: 12px; padding-bottom: 4px; }
       body.searching .bottom-nav { display: none; }
       body.searching .main {
         height: calc(100dvh - 58px - var(--safe-bottom) - var(--browser-bottom));
@@ -983,6 +1026,13 @@
         max-height: calc(68dvh - var(--safe-bottom) - var(--browser-bottom));
         padding: 14px;
         border-top-width: 4px;
+      }
+      #mineDrawer.drawer-scrim {
+        justify-items: stretch;
+      }
+      #mineDrawer .drawer {
+        width: 100%;
+        max-width: none;
       }
       .drawer-head { margin-bottom: 8px; }
       .drawer h2 { font-size: 18px; }
@@ -1215,6 +1265,7 @@
       {
         id: "mbti",
         category: "test",
+        comingSoon: true,
         name: "MBTI 人格",
         mission: "MISSION: MIND SCAN",
         location: "LOCATION: PSYCHE TERMINAL",
@@ -1235,6 +1286,7 @@
       {
         id: "dnd",
         category: "test",
+        comingSoon: true,
         name: "DND 阵营",
         mission: "MISSION: ALIGNMENT",
         location: "LOCATION: CHAOS FRONTIER",
@@ -1278,6 +1330,7 @@
     let selected = "soup";
     let filter = "mini";
     let me = null;
+    let loadMeAbort = null;
 
     const $ = (id) => document.getElementById(id);
 
@@ -1357,9 +1410,10 @@
       $("gameList").innerHTML = games.map((game) => {
         const searchable = `${game.name} ${game.short} ${game.tags.join(" ")}`.toLowerCase();
         const hidden = !canShowGame(game) || game.category !== filter || (query && !searchable.includes(query));
+        const enterLabel = game.comingSoon ? "敬请期待" : "ENTER →";
         const tags = game.tags.map((tag, index) => `<span class="tag ${index === 0 ? "pink" : ""}">${tag}</span>`).join("");
         return `
-          <button class="game-card ${game.id === selected ? "selected" : ""} ${hidden ? "hidden" : ""}" data-game="${game.id}" type="button">
+          <button class="game-card ${game.id === selected ? "selected" : ""} ${hidden ? "hidden" : ""}${game.comingSoon ? " coming-soon" : ""}" data-game="${game.id}" type="button">
             <span class="glyph">${game.glyph}</span>
             <span>
               <h2 class="game-title">${game.name}</h2>
@@ -1367,7 +1421,7 @@
               <span class="tags">${tags}</span>
             </span>
             <span class="level">${game.level}</span>
-            <span class="card-enter">ENTER →</span>
+            <span class="card-enter">${enterLabel}</span>
           </button>
         `;
       }).join("");
@@ -1415,6 +1469,9 @@
       $("screenIconOne").textContent = game.footerIcons[0];
       $("screenIconTwo").textContent = game.footerIcons[1];
       $("screenIconThree").textContent = game.footerIcons[2];
+      $("enterButton").textContent = game.comingSoon ? "敬请期待" : "ENTER →";
+      const drawerEnter = $("drawerEnter");
+      if (drawerEnter) drawerEnter.textContent = game.comingSoon ? "敬请期待" : "ENTER →";
       renderRanks(game);
       loadLeaderboard(game.id);
     }
@@ -1437,13 +1494,22 @@
     }
 
     function enterGame() {
-      window.location.href = currentGame().url;
+      const game = currentGame();
+      if (game.comingSoon) {
+        openPlaceholder(game.name, `${game.name}筹备中，敬请期待。`);
+        return;
+      }
+      window.location.href = game.url;
     }
 
     function enterGameById(id) {
       const game = games.find((item) => item.id === id);
       if (!game) return;
       selected = id;
+      if (game.comingSoon) {
+        openPlaceholder(game.name, `${game.name}筹备中，敬请期待。`);
+        return;
+      }
       window.location.href = game.url;
     }
 
@@ -1532,7 +1598,7 @@
         });
         return;
       }
-      const bindings = (me.bindings || []).map((user) => `<li><span>AI</span><span>${user.username}</span><span>BOUND</span></li>`).join("") || "<li><span>--</span><span>暂无绑定</span><span>--</span></li>";
+      const bindings = (me.bindings || []).map((user) => `<li><span>AI</span><span>${user.username}</span><span><button class="unbind-btn" data-ai-id="${user.id}" type="button">解绑</button></span></li>`).join("") || "<li><span>--</span><span>暂无绑定</span><span>--</span></li>";
       content.innerHTML = `
         <p class="desc">用户：${me.user.username}</p>
         <ol class="rank-list">${bindings}</ol>
@@ -1545,26 +1611,41 @@
         openModal("bindModal");
       });
       $("mineLogout").addEventListener("click", logout);
+      document.querySelectorAll(".unbind-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          if (!confirm("确定解绑该 AI 账号？")) return;
+          await unbindAccount(btn.dataset.aiId);
+        });
+      });
     }
 
     async function loadMe() {
+      loadMeAbort?.abort();
+      const controller = new AbortController();
+      loadMeAbort = controller;
       if (!token()) {
         me = null;
         renderAuth();
         return;
       }
       try {
-        const res = await fetch("/api/auth/me", {headers: headers(false)});
+        const res = await fetch("/api/auth/me", {
+          headers: headers(false),
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error("auth failed");
+        if (controller.signal.aborted) return;
         me = await res.json();
         if (me && me.user && me.user.id) {
           localStorage.setItem("cedartoy_user_id", me.user.id);
         }
       } catch (err) {
+        if (err.name === "AbortError") return;
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem("cedartoy_user_id");
         me = null;
       }
+      if (controller.signal.aborted) return;
       renderAuth();
       renderGames();
       renderDetail();
@@ -1581,6 +1662,7 @@
     }
 
     async function login() {
+      loadMeAbort?.abort();
       $("loginMsg").textContent = "";
       const username = $("loginUser").value.trim();
       const password = $("loginPass").value;
@@ -1592,7 +1674,7 @@
       try {
         const res = await fetch("/api/auth/login_or_register", {
           method: "POST",
-          headers: headers(true),
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({username, password})
         });
         const data = await res.json().catch(() => ({}));
@@ -1633,7 +1715,24 @@
       }
     }
 
+    async function unbindAccount(aiUserId) {
+      try {
+        const res = await fetch("/api/auth/bind", {
+          method: "DELETE",
+          headers: headers(true),
+          body: JSON.stringify({ai_user_id: Number(aiUserId)})
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "解绑失败");
+        await loadMe();
+        renderMine();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
     function logout() {
+      loadMeAbort?.abort();
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem("cedartoy_user_id");
       me = null;

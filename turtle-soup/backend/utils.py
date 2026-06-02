@@ -8,6 +8,9 @@ from fastapi import HTTPException
 SAFE_TEXT_RE = re.compile(r"[<>{}]")
 ROOM_ALPHABET = string.ascii_letters + string.digits
 
+# SQLite CURRENT_TIMESTAMP / datetime('now') are UTC; store/compare China wall time (server TZ).
+SQL_NOW = "datetime('now', 'localtime')"
+
 
 def strip_puzzle_text(value: str | None, *, required: bool = False, label: str = "内容") -> str:
     text = (value or "").strip()

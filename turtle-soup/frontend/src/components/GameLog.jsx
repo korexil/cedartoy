@@ -1,18 +1,6 @@
+import { useEffect, useState } from 'react'
 import JudgeBadge from './JudgeBadge.jsx'
-
-function formatLogTime(createdAt) {
-  if (!createdAt) return ''
-  const raw = String(createdAt).trim()
-  const normalized = raw.includes('T') ? raw : `${raw.replace(' ', 'T')}Z`
-  const date = new Date(normalized)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
-}
+import { formatDbDateTime, formatDbLogClock, formatDbTime } from '../utils/display.js'
 
 function isResolved(log) {
   return Number(log.resolved) === 1
@@ -131,6 +119,16 @@ function systemNoticeContent(content) {
 
 export default function GameLog({ logs, onReport, onHintRespond, hintBusy, currentPlayerId }) {
   const ordered = sortLogs(logs)
+  const [compactLogTime, setCompactLogTime] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 900px)')
+    const sync = () => setCompactLogTime(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
 
   return (
     <div className="session-log-body">
@@ -165,7 +163,8 @@ export default function GameLog({ logs, onReport, onHintRespond, hintBusy, curre
           return null
         }
         const notice = systemNoticeContent(log.content)
-        const time = formatLogTime(log.created_at)
+        const timeFull = formatDbDateTime(log.created_at)
+        const time = compactLogTime ? formatDbLogClock(log.created_at) : formatDbTime(log.created_at)
         const name = log.username || (log.player_id ? `游客${log.player_id}` : '系统')
         if (log.type === 'guess') {
           const parsed = parseGuessContent(log.content)
@@ -186,12 +185,12 @@ export default function GameLog({ logs, onReport, onHintRespond, hintBusy, curre
               onReport?.(log)
             }}
           >
-            <span className="log-time">{time}</span>
-            {!notice && <JudgeBadge value={log.judgment} />}
+            <span className="log-time" title={timeFull}>{time}</span>
             <span className="log-text">
               {notice || (log.type === 'system' ? '' : `${prefix}：`)}
               {notice ? '' : log.content}
             </span>
+            {!notice && <JudgeBadge value={log.judgment} />}
           </div>
         )
       })}

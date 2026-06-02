@@ -2,7 +2,8 @@ import json
 import re
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from .questions import (
     FAST_BATCH_SIZE_MAX,
@@ -291,7 +292,7 @@ def dnd_get_result(arguments):
     result_value, detail_json, completed_at = row
     detail = json.loads(detail_json or "{}")
     mode = detail.get("mode") or "unknown"
-    label = datetime.fromtimestamp(completed_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    label = datetime.fromtimestamp(completed_at, tz=ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M")
     return format_stored_result(mode, result_value, detail, label)
 
 
@@ -390,7 +391,7 @@ def _raise_no_active_session(conn, player_id):
         result_value, detail_json, completed_at = row
         detail = json.loads(detail_json or "{}")
         mode = detail.get("mode") or "unknown"
-        label = datetime.fromtimestamp(completed_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        label = datetime.fromtimestamp(completed_at, tz=ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M")
         raise JsonRpcError(
             -32002,
             f"该 ID 的 DND 测试已于 {label} 完成（结果 {result_value}，模式 {mode}）。请用 dnd_get_result 查看详情，或用 dnd_start 重新测试。",

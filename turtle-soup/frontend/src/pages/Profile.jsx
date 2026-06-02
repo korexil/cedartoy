@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { formatDbDateTime } from '../utils/display.js'
 
 export default function Profile() {
   const [data, setData] = useState(null)
@@ -14,7 +15,7 @@ export default function Profile() {
         <div>是 <b>{p.ask_count_y}</b></div><div>否 <b>{p.ask_count_n}</b></div><div>不相关 <b>{p.ask_count_u}</b></div>
       </div>
       <h3>历史对局</h3>
-      <div className="room-list">{data.rooms.map((r) => <div className="room-item" key={r.id}><b>{r.surface}</b><span>{r.status} · {r.created_at}</span></div>)}</div>
+      <div className="room-list">{data.rooms.map((r) => <div className="room-item" key={r.id}><b>{r.surface}</b><span>{r.status} · {formatDbDateTime(r.created_at)}</span></div>)}</div>
     </section>
   )
 }

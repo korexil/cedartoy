@@ -9,8 +9,10 @@ import {
   Shield,
 } from 'lucide-react'
 import { api, ensureGuestToken, getToken, logoutToGuest, post } from '../api'
+import BindModal from '../components/BindModal.jsx'
 import GameLog from '../components/GameLog.jsx'
 import LoginModal from '../components/LoginModal.jsx'
+import MineDrawer from '../components/MineDrawer.jsx'
 import NoteBoard from '../components/NoteBoard.jsx'
 import { soupName } from '../utils/display.js'
 
@@ -52,6 +54,9 @@ export default function Room() {
   const [closeLoading, setCloseLoading] = useState(false)
   const [surfaceCollapsed, setSurfaceCollapsed] = useState(false)
   const [hintConfirmOpen, setHintConfirmOpen] = useState(false)
+  const [mineOpen, setMineOpen] = useState(false)
+  const [bindOpen, setBindOpen] = useState(false)
+  const [cedartoyMe, setCedartoyMe] = useState(null)
   const logRef = useRef(null)
 
   const load = async () => {
@@ -64,6 +69,35 @@ export default function Room() {
     setLogs(data.logs || [])
     setNotes(data.notes || [])
     setMe(profile?.player || null)
+  }
+
+  const loadCedartoyMe = async () => {
+    const token = localStorage.getItem('cedartoy_token') || ''
+    if (!token) { setCedartoyMe(null); return }
+    try {
+      const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error()
+      setCedartoyMe(await res.json())
+    } catch { setCedartoyMe(null) }
+  }
+
+  const unbindAi = async (aiUserId) => {
+    if (!confirm('确定解绑该 AI 账号？')) return
+    const token = localStorage.getItem('cedartoy_token') || ''
+    try {
+      const res = await fetch('/api/auth/bind', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ai_user_id: Number(aiUserId) }),
+      })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || '解绑失败') }
+      await loadCedartoyMe()
+    } catch (e) { alert(e.message) }
+  }
+
+  const openMine = () => {
+    setMineOpen(true)
+    loadCedartoyMe()
   }
 
   useEffect(() => {
@@ -225,6 +259,7 @@ export default function Room() {
 
   const logout = async () => {
     await logoutToGuest()
+    setCedartoyMe(null)
     setMe(null)
   }
 
@@ -275,7 +310,7 @@ export default function Room() {
           {!me || me?.is_guest ? (
             <button type="button" className="avatar-pill" aria-label="登录" onClick={() => setLoginOpen(true)}>{initials(me)}</button>
           ) : (
-            <Link className="avatar-pill" to="/profile" aria-label="个人资料">{initials(me)}</Link>
+            <button type="button" className="avatar-pill" aria-label="我的" onClick={openMine}>{initials(me)}</button>
           )}
           {!me?.is_guest && <button type="button" className="soup-logout-link" onClick={logout} aria-label="退出"><LogOut size={17} /><span>退出</span></button>}
         </nav>
@@ -457,6 +492,20 @@ export default function Room() {
           setMe(player)
           load()
         }}
+      />
+      <MineDrawer
+        open={mineOpen}
+        onClose={() => setMineOpen(false)}
+        cedartoyMe={cedartoyMe}
+        onLogin={() => setLoginOpen(true)}
+        onBind={() => setBindOpen(true)}
+        onLogout={logout}
+        onUnbind={unbindAi}
+      />
+      <BindModal
+        open={bindOpen}
+        onClose={() => setBindOpen(false)}
+        onSuccess={loadCedartoyMe}
       />
     </div>
   )

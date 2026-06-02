@@ -20,7 +20,7 @@ from routers.game import hint_request as game_hint_request
 from routers.game import hint_respond as game_hint_respond
 from routers.notes import add_note, delete_note, update_note
 from routers.rooms import close_room, create_room
-from utils import clean_content
+from utils import SQL_NOW, clean_content
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -38,6 +38,7 @@ class PlayBody(BaseModel):
     password: str | None = None
     room_id: str | None = None
     content: str | None = None
+    puzzle_id: int | None = None
     surface: str | None = None
     answer: str | None = None
     tags: str | None = None
@@ -55,6 +56,15 @@ async def play(body: PlayBody):
         raise HTTPException(status_code=400, detail="action 必填")
     if body.action == "list_rooms":
         return await fetch_all("SELECT id, surface, status, created_at FROM rooms WHERE status IN ('waiting','playing') ORDER BY created_at DESC")
+    if body.action == "list_puzzles":
+        return await fetch_all(
+            """
+            SELECT id, title, surface, tags
+            FROM puzzles
+            WHERE enabled = 1
+            ORDER BY id ASC
+            """
+        )
     if body.action == "status":
         if not body.room_id:
             raise HTTPException(status_code=400, detail="room_id 必填")
@@ -89,7 +99,8 @@ async def play(body: PlayBody):
         return notes
     player = await _mcp_player(body.path_token)
     if body.action == "create_random":
-        return await create_room(RoomCreateBody(mode="random"), player)
+        result = await create_room(RoomCreateBody(mode="random", puzzle_id=body.puzzle_id), player)
+        return await _public_room(result["room_id"])
     if body.action == "create_custom":
         surface = clean_content(body.surface or "", 500)
         answer = clean_content(body.answer or "", 1000)
@@ -160,7 +171,17 @@ async def play(body: PlayBody):
 
 
 async def _public_room(room_id: str) -> dict:
-    room = await fetch_one("SELECT id, surface, status, winner_id, created_at, finished_at FROM rooms WHERE id = ?", (room_id,))
+    room = await fetch_one(
+        """
+        SELECT r.id, r.surface, r.status, r.winner_id, r.created_at, r.finished_at,
+               COALESCE(NULLIF(TRIM(pz.title), ''), '') AS title,
+               COALESCE(pz.tags, '') AS tags
+        FROM rooms r
+        LEFT JOIN puzzles pz ON pz.id = r.puzzle_id
+        WHERE r.id = ?
+        """,
+        (room_id,),
+    )
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
     return room
@@ -249,7 +270,7 @@ async def get_player_from_token(db, path_token: str | None):
     if not toy_user:
         raise HTTPException(status_code=401, detail="账号不存在或已删除")
 
-    await db.execute("UPDATE toy_users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
+    await db.execute(f"UPDATE toy_users SET last_active_at = {SQL_NOW} WHERE id = ?", (user_id,))
     async with db.execute("SELECT * FROM players WHERE user_id = ?", (user_id,)) as cur:
         player = await cur.fetchone()
     async with db.execute(
@@ -263,10 +284,10 @@ async def get_player_from_token(db, path_token: str | None):
         player = named_player
     if player:
         await db.execute(
-            """
+            f"""
             UPDATE players
             SET user_id = ?, username = ?, is_guest = 0, is_ai = 1, source = 'mcp',
-                last_active_at = CURRENT_TIMESTAMP
+                last_active_at = {SQL_NOW}
             WHERE id = ?
             """,
             (user_id, toy_user["username"], player["id"]),

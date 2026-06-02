@@ -415,8 +415,8 @@
           <td data-label="状态">${statusBadge(user)}</td>
           <td data-label="海龟汤身份">${user.soup_player_count || 0}</td>
           <td data-label="绑定">AI ${user.bound_ai_count || 0} / 人类 ${user.bound_human_count || 0} / 码 ${user.active_binding_tokens || 0}</td>
-          <td data-label="创建时间">${escapeHtml(user.created_at || "")}</td>
-          <td data-label="活跃时间">${escapeHtml(user.last_active_at || "")}</td>
+          <td data-label="创建时间">${escapeHtml(formatDbDateTime(user.created_at))}</td>
+          <td data-label="活跃时间">${escapeHtml(formatDbDateTime(user.last_active_at))}</td>
           <td data-label="操作">
             <div class="row-actions">
               <button type="button" data-action="edit" data-id="${user.id}">编辑</button>
@@ -426,6 +426,17 @@
           </td>
         </tr>
       `).join("");
+    }
+
+    function formatDbDateTime(value) {
+      if (!value) return "";
+      const raw = String(value).trim();
+      const normalized = raw.includes("T")
+        ? (/[zZ]$/.test(raw) || /[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw}+08:00`)
+        : `${raw.replace(" ", "T")}+08:00`;
+      const date = new Date(normalized);
+      if (Number.isNaN(date.getTime())) return raw;
+      return date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
     }
 
     function escapeHtml(value) {

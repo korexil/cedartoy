@@ -7,7 +7,7 @@ from auth_utils import admin_player, verify_password
 from database import execute, fetch_all, fetch_one
 from judge import list_models, test_config
 from models import RoomCreateBody
-from utils import clean_content, room_id
+from utils import SQL_NOW, clean_content, room_id
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -279,7 +279,7 @@ async def create_admin_room(body: RoomAdminBody, admin: dict = Depends(admin_pla
         rid = room_id()
     status = body.status[:32] or "waiting"
     await execute(
-        "INSERT INTO rooms (id, surface, answer, status, created_by, winner_id, finished_at) VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = 'finished' THEN CURRENT_TIMESTAMP ELSE NULL END)",
+        f"INSERT INTO rooms (id, surface, answer, status, created_by, winner_id, finished_at) VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = 'finished' THEN {SQL_NOW} ELSE NULL END)",
         (
             rid,
             clean_content(body.surface, 500),
@@ -296,7 +296,7 @@ async def create_admin_room(body: RoomAdminBody, admin: dict = Depends(admin_pla
 @router.post("/rooms/{room_id}/finish")
 async def finish_room(room_id: str, admin: dict = Depends(admin_player)):
     del admin
-    await execute("UPDATE rooms SET status = 'finished', finished_at = CURRENT_TIMESTAMP WHERE id = ?", (room_id,))
+    await execute(f"UPDATE rooms SET status = 'finished', finished_at = {SQL_NOW} WHERE id = ?", (room_id,))
     return {"ok": True}
 
 
@@ -306,7 +306,7 @@ async def update_room(room_id: str, body: RoomAdminBody, admin: dict = Depends(a
     existing = await fetch_one("SELECT id FROM rooms WHERE id = ?", (room_id,))
     if not existing:
         raise HTTPException(status_code=404, detail="房间不存在")
-    finished_at_sql = ", finished_at = CASE WHEN ? = 'finished' THEN COALESCE(finished_at, CURRENT_TIMESTAMP) ELSE NULL END"
+    finished_at_sql = f", finished_at = CASE WHEN ? = 'finished' THEN COALESCE(finished_at, {SQL_NOW}) ELSE NULL END"
     await execute(
         f"UPDATE rooms SET surface = ?, answer = ?, status = ?, winner_id = ?{finished_at_sql} WHERE id = ?",
         (

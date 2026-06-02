@@ -27,6 +27,19 @@ async def random_puzzle(player: dict = Depends(current_player)):
     return row
 
 
+@router.get("/public")
+async def public_puzzles(player: dict = Depends(current_player)):
+    del player
+    return await fetch_all(
+        """
+        SELECT id, title, surface, tags
+        FROM puzzles
+        WHERE enabled = 1
+        ORDER BY id ASC
+        """
+    )
+
+
 @router.post("/submit")
 async def submit_puzzle(body: RoomCreateBody, player: dict = Depends(current_player)):
     surface = clean_content(body.surface or "", 500)

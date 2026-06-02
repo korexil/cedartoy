@@ -7,6 +7,8 @@ export default function LoginModal({ open, onClose, onSuccess }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const backdropPointerId = useRef(null)
+  const usernameRef = useRef(null)
+  const passwordRef = useRef(null)
 
   useEffect(() => {
     if (!open) return undefined
@@ -21,14 +23,16 @@ export default function LoginModal({ open, onClose, onSuccess }) {
 
   const submit = async () => {
     setError('')
-    const validationError = validateLoginInput(username.trim(), password)
+    const resolvedUsername = (usernameRef.current?.value ?? username).trim()
+    const resolvedPassword = passwordRef.current?.value ?? password
+    const validationError = validateLoginInput(resolvedUsername, resolvedPassword)
     if (validationError) {
       setError(validationError)
       return
     }
     setLoading(true)
     try {
-      const player = await loginOrRegister(username.trim(), password)
+      const player = await loginOrRegister(resolvedUsername, resolvedPassword)
       setUsername('')
       setPassword('')
       onSuccess?.(player)
@@ -71,6 +75,7 @@ export default function LoginModal({ open, onClose, onSuccess }) {
         <label className="field">
           <span className="field-label">用户名</span>
           <input
+            ref={usernameRef}
             type="text"
             maxLength={20}
             autoComplete="username"
@@ -82,6 +87,7 @@ export default function LoginModal({ open, onClose, onSuccess }) {
         <label className="field">
           <span className="field-label">密码</span>
           <input
+            ref={passwordRef}
             type="password"
             autoComplete="current-password"
             value={password}

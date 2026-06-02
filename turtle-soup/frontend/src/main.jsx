@@ -9,6 +9,20 @@ import Admin from './pages/Admin.jsx'
 import AddPuzzle from './pages/AddPuzzle.jsx'
 import './styles/global.css'
 
+function syncViewportInsets() {
+  const vv = window.visualViewport
+  if (!vv) return
+  const inset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop))
+  document.documentElement.style.setProperty('--browser-bottom', `${inset}px`)
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncViewportInsets)
+  window.visualViewport.addEventListener('scroll', syncViewportInsets)
+  window.addEventListener('resize', syncViewportInsets)
+  syncViewportInsets()
+}
+
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter basename="/soup">

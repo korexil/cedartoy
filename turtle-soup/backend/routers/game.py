@@ -9,7 +9,7 @@ from database import execute, fetch_all, fetch_one, get_db, get_setting
 from models import ContentBody, GuessBody, HintRequestBody, HintResponseBody
 from presence import touch_room
 from sse import broadcast
-from utils import clean_content
+from utils import SQL_NOW, clean_content
 
 router = APIRouter(prefix="/game", tags=["game"])
 logger = logging.getLogger(__name__)
@@ -180,7 +180,7 @@ async def _ask_impl(body: ContentBody, player: dict) -> tuple[dict, asyncio.Task
                   SELECT created_at FROM game_logs
                   WHERE room_id = ? AND player_id = ? AND type = 'ask'
                   ORDER BY id DESC LIMIT ?
-                ) WHERE datetime(created_at) >= datetime('now', ?)
+                ) WHERE datetime(created_at) >= datetime('now', 'localtime', ?)
                 """,
                 (body.room_id, player["id"], n, f"-{seconds} seconds"),
             )
@@ -251,7 +251,7 @@ async def guess(body: GuessBody, player: dict = Depends(current_player)):
         db = await get_db()
         try:
             await db.execute(
-                "UPDATE rooms SET status = 'finished', winner_id = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?",
+                f"UPDATE rooms SET status = 'finished', winner_id = ?, finished_at = {SQL_NOW} WHERE id = ?",
                 (player["id"], body.room_id),
             )
             await db.execute("UPDATE players SET win_count = win_count + 1 WHERE id = ?", (player["id"],))

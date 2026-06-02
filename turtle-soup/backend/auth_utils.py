@@ -7,6 +7,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from database import execute, fetch_one
+from utils import SQL_NOW
 
 
 SECRET_KEY = os.getenv("TURTLE_SOUP_SECRET", "change-me-before-production")
@@ -50,7 +51,7 @@ async def current_player(
     player = await fetch_one("SELECT * FROM players WHERE id = ?", (player_id,))
     if not player:
         raise HTTPException(status_code=401, detail="账号不存在")
-    await execute("UPDATE players SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?", (player_id,))
+    await execute(f"UPDATE players SET last_active_at = {SQL_NOW} WHERE id = ?", (player_id,))
     return player
 
 

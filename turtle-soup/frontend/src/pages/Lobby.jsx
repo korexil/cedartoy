@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, History, ListPlus, LogOut, Plus, RefreshCw, Search, Shield, Trophy, UserRound } from 'lucide-react'
+import { ArrowLeft, History, House, ListPlus, LogOut, Plus, RefreshCw, Search, Shield, Trophy, UserRound } from 'lucide-react'
 import { api, ensureGuestToken, logoutToGuest, post } from '../api'
+import BindModal from '../components/BindModal.jsx'
 import Leaderboard from '../components/Leaderboard.jsx'
 import LoginModal from '../components/LoginModal.jsx'
+import MineDrawer from '../components/MineDrawer.jsx'
+import PlaceholderModal from '../components/PlaceholderModal.jsx'
 
 const TITLE_MAX = 24
 const TAG_FILTERS = ['红汤', '黑汤', '本格', '变格']
@@ -48,7 +51,9 @@ export default function Lobby() {
   const nav = useNavigate()
   const location = useLocation()
   const [rooms, setRooms] = useState([])
+  const [puzzles, setPuzzles] = useState([])
   const [random, setRandom] = useState(null)
+  const [selectedPuzzleId, setSelectedPuzzleId] = useState('')
   const [custom, setCustom] = useState({ surface: '', answer: '' })
   const [generated, setGenerated] = useState(null)
   const [aiCooldown, setAiCooldown] = useState(0)
@@ -63,6 +68,10 @@ export default function Lobby() {
   const [activeTagFilters, setActiveTagFilters] = useState([])
   const [loginOpen, setLoginOpen] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [mineOpen, setMineOpen] = useState(false)
+  const [bindOpen, setBindOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [cedartoyMe, setCedartoyMe] = useState(null)
 
   const load = async () => {
     try {
@@ -73,16 +82,49 @@ export default function Lobby() {
       ])
       setRooms(roomRows)
       setMe(profile?.player || null)
+      api('/puzzles/public').then((rows) => setPuzzles(rows)).catch(() => setPuzzles([]))
       api('/game/public-settings').then((data) => setCooldownSeconds(Number(data.generate_cooldown_seconds) || 5)).catch(() => {})
     } catch (e) {
       setError(e.message)
     }
   }
   useEffect(() => { load() }, [])
+
+  const loadCedartoyMe = async () => {
+    const token = localStorage.getItem('cedartoy_token') || ''
+    if (!token) { setCedartoyMe(null); return }
+    try {
+      const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error()
+      setCedartoyMe(await res.json())
+    } catch { setCedartoyMe(null) }
+  }
+
+  const unbindAi = async (aiUserId) => {
+    if (!confirm('确定解绑该 AI 账号？')) return
+    const token = localStorage.getItem('cedartoy_token') || ''
+    try {
+      const res = await fetch('/api/auth/bind', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ai_user_id: Number(aiUserId) }),
+      })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || '解绑失败') }
+      await loadCedartoyMe()
+    } catch (e) { alert(e.message) }
+  }
+
+  const openMine = () => {
+    setMineOpen(true)
+    loadCedartoyMe()
+  }
   useEffect(() => {
     const tab = location.state?.tab
-    if (tab === 'leaderboard' || tab === 'history' || tab === 'mine') {
+    if (tab === 'leaderboard' || tab === 'mine') {
       setBottomTab(tab)
+    }
+    if (tab === 'history') {
+      setHistoryOpen(true)
     }
   }, [location.state?.tab])
   useEffect(() => {
@@ -97,7 +139,13 @@ export default function Lobby() {
   }, [randomCooldown])
   const roll = async () => {
     setRandomCooldown(cooldownSeconds)
-    setRandom(await api('/puzzles/random'))
+    const puzzle = await api('/puzzles/random')
+    setRandom(puzzle)
+    setSelectedPuzzleId(String(puzzle.id))
+  }
+  const selectPuzzle = (value) => {
+    setSelectedPuzzleId(value)
+    setRandom(puzzles.find((puzzle) => String(puzzle.id) === value) || null)
   }
   const create = async (body) => {
     if (creating) return
@@ -120,6 +168,7 @@ export default function Lobby() {
   }
   const logout = async () => {
     await logoutToGuest()
+    setCedartoyMe(null)
     await load()
   }
   const activeRooms = rooms.filter((room) => room.status === 'waiting' || room.status === 'playing')
@@ -154,8 +203,13 @@ export default function Lobby() {
       {createTab === 'random' && (
         <div className="create-body">
           <label className="terminal-label">选题
-            <select value={random?.id || ''} onChange={roll}>
-              <option value={random?.id || ''}>{random ? `#${random.id} ${random.title || '随机题'}` : '经典推理题库'}</option>
+            <select value={selectedPuzzleId} onChange={(event) => selectPuzzle(event.target.value)}>
+              <option value="">经典推理题库（可选）</option>
+              {puzzles.map((puzzle) => (
+                <option value={String(puzzle.id)} key={puzzle.id}>
+                  #{puzzle.id} {puzzle.title || puzzle.surface.slice(0, 24)}
+                </option>
+              ))}
             </select>
           </label>
           <p className="terminal-note">题库抽取的大多微恐，请酌情选择。</p>
@@ -175,14 +229,15 @@ export default function Lobby() {
           <label className="terminal-label">汤面<textarea value={custom.surface} onChange={(e) => setCustom({ ...custom, surface: e.target.value })} /></label>
           <label className="terminal-label">
             汤底
-            <span className="textarea-wrap textarea-wrap--hint">
-              <textarea value={custom.answer} onChange={(e) => setCustom({ ...custom, answer: e.target.value })} />
-              {!custom.answer.trim() && (
-                <span className="textarea-overlay-hint" aria-hidden="true">
-                  {`若需在中间阶段公布特殊线索，可在汤底插入【线索公布】，标记后写该阶段要公开的内容。\n\n示例：用户猜测主持人在说反话【线索公布】一段追加背景介绍……`}
-                </span>
-              )}
-            </span>
+            <textarea
+              value={custom.answer}
+              onChange={(e) => setCustom({ ...custom, answer: e.target.value })}
+              placeholder={
+                custom.answer.trim()
+                  ? undefined
+                  : '若需在中间阶段公布特殊线索，可在汤底插入【线索公布】，标记后写该阶段要公开的内容。示例：用户猜测主持人在说反话【线索公布】一段追加背景介绍……'
+              }
+            />
           </label>
           <button type="button" className={`${createBtnClass} wide`} disabled={creating} onClick={() => create({ mode: 'custom', ...custom })}>{createLabel}</button>
         </div>
@@ -216,7 +271,7 @@ export default function Lobby() {
           {!me || me?.is_guest ? (
             <button type="button" className="avatar-pill" aria-label="登录" onClick={() => setLoginOpen(true)}>{initials(me)}</button>
           ) : (
-            <Link className="avatar-pill" to="/profile" aria-label="个人资料">{initials(me)}</Link>
+            <button type="button" className="avatar-pill" aria-label="我的" onClick={openMine}>{initials(me)}</button>
           )}
           {!me?.is_guest && <button type="button" className="soup-logout-link" onClick={logout} aria-label="退出"><LogOut size={17} /><span>退出</span></button>}
         </nav>
@@ -230,15 +285,6 @@ export default function Lobby() {
               <button type="button" onClick={() => setBottomTab('rooms')}>返回房间列表</button>
             </div>
             <Leaderboard />
-          </section>
-        )}
-        {bottomTab === 'history' && (
-          <section className="lobby-view">
-            <div className="rooms-head">
-              <h1><span>◴</span>历史</h1>
-              <button type="button" onClick={() => setBottomTab('rooms')}>返回房间列表</button>
-            </div>
-            <div className="panel pixel-view-panel">历史记录在个人页汇总展示。</div>
           </section>
         )}
         {bottomTab === 'mine' && (
@@ -289,12 +335,6 @@ export default function Lobby() {
                 </button>
               ))}
             </div>
-            {me?.is_admin && (
-              <div className="mobile-admin-shortcuts" aria-label="管理员入口">
-                <Link to="/add-puzzle"><ListPlus size={16} />加题</Link>
-                <Link to="/admin"><Shield size={16} />管理后台</Link>
-              </div>
-            )}
           </div>
           <div className="pixel-room-list">
             {filteredRooms.map((room) => {
@@ -306,13 +346,15 @@ export default function Lobby() {
                   <div className="room-copy">
                     <h2>{roomTitle(room)}</h2>
                     <p>{room.surface}</p>
-                    <div className="room-meta">
-                      {tags.map((tag) => <span className="soup-badge" key={tag}>{tag}</span>)}
-                      <span className={`soup-badge ${room.status === 'finished' ? 'pale' : 'playing'}`}>{room.status === 'finished' ? '已结束' : '进行中'}</span>
+                    <div className="room-footer">
+                      <div className="room-meta">
+                        {tags.map((tag) => <span className="soup-badge" key={tag}>{tag}</span>)}
+                        <span className={`soup-badge ${room.status === 'finished' ? 'pale' : 'playing'}`}>{room.status === 'finished' ? '已结束' : '进行中'}</span>
+                      </div>
+                      <div className="room-stats"><span>提问 {room.ask_count || 0}</span><span>在房 {room.active_players || 0}</span></div>
+                      <span className="enter-room" aria-hidden="true">进入 →</span>
                     </div>
-                    <div className="room-stats"><span>提问 {room.ask_count || 0}</span><span>在房 {room.active_players || 0}</span></div>
                   </div>
-                  <span className="enter-room" aria-hidden="true">进入 →</span>
                 </Link>
               )
             })}
@@ -327,11 +369,17 @@ export default function Lobby() {
 
       <nav className="lobby-bottom-nav" aria-label="底部导航">
         {[
+          ['rooms', <House size={22} />, '大厅'],
           ['leaderboard', <Trophy size={22} />, '排行榜'],
           ['history', <History size={22} />, '历史'],
           ['mine', <UserRound size={22} />, '我的'],
         ].map(([id, icon, label]) => (
           <button type="button" className={bottomTab === id ? 'active' : ''} key={id} onClick={() => {
+            if (id === 'mine') { openMine(); return }
+            if (id === 'history') {
+              setHistoryOpen(true)
+              return
+            }
             setBottomTab(id)
           }}><span className="bottom-icon">{icon}</span><span>{label}</span></button>
         ))}
@@ -352,6 +400,26 @@ export default function Lobby() {
           setMe(player)
           load()
         }}
+      />
+      <MineDrawer
+        open={mineOpen}
+        onClose={() => setMineOpen(false)}
+        cedartoyMe={cedartoyMe}
+        onLogin={() => setLoginOpen(true)}
+        onBind={() => setBindOpen(true)}
+        onLogout={logout}
+        onUnbind={unbindAi}
+      />
+      <BindModal
+        open={bindOpen}
+        onClose={() => setBindOpen(false)}
+        onSuccess={loadCedartoyMe}
+      />
+      <PlaceholderModal
+        open={historyOpen}
+        title="历史"
+        message="游玩历史筹备中，敬请期待。"
+        onClose={() => setHistoryOpen(false)}
       />
     </div>
   )

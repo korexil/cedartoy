@@ -4,7 +4,7 @@ from auth_utils import current_player
 from database import execute, fetch_one
 from models import NoteBody
 from sse import broadcast
-from utils import clean_content
+from utils import SQL_NOW, clean_content
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -45,7 +45,7 @@ async def update_note(note_id: int, body: NoteBody, player: dict = Depends(curre
         raise HTTPException(status_code=403, detail="只能修改自己的记事")
     content = clean_content(body.content, 50)
     await execute(
-        "UPDATE room_notes SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        f"UPDATE room_notes SET content = ?, updated_at = {SQL_NOW} WHERE id = ?",
         (content, note_id),
     )
     note = await _note_payload(note_id)

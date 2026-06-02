@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, post, put, del, setToken } from '../api'
+import { api, post, put, del, ensureAdminSession } from '../api'
+import { formatDbDateTime } from '../utils/display.js'
 
 const tableNames = {
   overview: '总览',
@@ -84,6 +85,8 @@ const settingDescriptions = {
   judge_prompt: '裁判判断提问时使用的系统提示词。',
   judge_prompt_clue: '线索汤专用补充提示词。仅当汤底含【线索公布】标记时拼接到 judge_prompt 后。',
   guest_expire_hours: '游客身份/临时数据可保留的小时数。',
+  room_inactive_expire_hours: '房间最后一条玩家发言后自动结束的小时数。',
+  finished_room_retention_hours: '已结束房间继续保留的小时数。',
 }
 
 const statusText = {
@@ -182,10 +185,13 @@ const canAdd = new Set(['puzzles', 'submissions', 'players', 'rooms', 'bans', 'r
 const canEdit = new Set(['puzzles', 'submissions', 'players', 'rooms', 'bans', 'reports', 'flags', 'api-configs', 'settings'])
 const canDelete = new Set(['puzzles', 'submissions', 'players', 'rooms', 'bans', 'reports', 'flags', 'api-configs', 'settings'])
 
+const timestampFields = new Set(['created_at', 'last_active_at', 'finished_at', 'updated_at', 'joined_at', 'expires_at', 'deleted_at', 'bound_at'])
+
 function displayValue(key, value) {
   if (value === null || value === undefined || value === '') return '未填写'
   if (['enabled', 'is_guest', 'is_ai', 'is_admin'].includes(key)) return Number(value) ? '是' : '否'
   if (key === 'status') return statusText[value] || value
+  if (timestampFields.has(key)) return formatDbDateTime(value)
   if (Array.isArray(value)) return value.map((item, index) => `${index + 1}. ${displayValue('', item)}`).join('\n')
   if (typeof value === 'object') {
     return Object.entries(value)
@@ -289,15 +295,7 @@ export default function Admin() {
 
   const load = async () => {
     try {
-      const toyUserId = localStorage.getItem('cedartoy_user_id')
-      if (!toyUserId) {
-        setRows(null)
-        setError('')
-        setAuthError({ status: 401, message: '请先在开始页面登录统一账号' })
-        return
-      }
-      const auth = await post('/auth/guest', { user_id: Number(toyUserId) })
-      setToken(auth.token)
+      await ensureAdminSession()
       const path = tab === 'puzzles' ? '/puzzles/' : `/admin/${tab}`
       const data = await api(path)
       setRows(data)
@@ -353,22 +351,42 @@ export default function Admin() {
 
   const removeRow = async (row) => {
     if (!confirm(`确认删除这条${tableNames[tab]}记录？`)) return
-    if (tab === 'puzzles') await del(`/puzzles/${row.id}`)
-    else if (tab === 'settings') await del(`/admin/settings/${encodeURIComponent(row.key)}`)
-    else await del(`/admin/${tab}/${row.id}`)
-    load()
+    try {
+      setError('')
+      const rowId = encodeURIComponent(String(row.id ?? row.key ?? ''))
+      if (tab === 'puzzles') await del(`/puzzles/${rowId}`)
+      else if (tab === 'settings') await del(`/admin/settings/${encodeURIComponent(row.key)}`)
+      else await del(`/admin/${tab}/${rowId}`)
+      await load()
+    } catch (e) {
+      if (e.status === 401 || e.status === 403) {
+        setAuthError({ status: e.status, message: e.message })
+        return
+      }
+      setError(e.message || '删除失败')
+    }
   }
 
   const runAction = async (name, row) => {
-    if (name === 'togglePuzzle') await api(`/puzzles/${row.id}/toggle`, { method: 'PATCH' })
-    if (name === 'addSubmission') await post(`/admin/submissions/${row.id}/add`, row)
-    if (name === 'ignoreSubmission') await post(`/admin/submissions/${row.id}/ignore`)
-    if (name === 'resetPlayer') await post(`/admin/players/${row.id}/reset`)
-    if (name === 'toggleAdmin') await api(`/admin/players/${row.id}/admin?enabled=${row.is_admin ? 0 : 1}`, { method: 'PATCH' })
-    if (name === 'finishRoom') await post(`/admin/rooms/${row.id}/finish`)
-    if (name === 'resolveReport') await post(`/admin/reports/${row.id}/resolve`)
-    if (name === 'resolveFlag') await post(`/admin/flags/${row.id}/resolve`)
-    load()
+    try {
+      setError('')
+      const rowId = encodeURIComponent(String(row.id ?? ''))
+      if (name === 'togglePuzzle') await api(`/puzzles/${rowId}/toggle`, { method: 'PATCH' })
+      if (name === 'addSubmission') await post(`/admin/submissions/${rowId}/add`, row)
+      if (name === 'ignoreSubmission') await post(`/admin/submissions/${rowId}/ignore`)
+      if (name === 'resetPlayer') await post(`/admin/players/${rowId}/reset`)
+      if (name === 'toggleAdmin') await api(`/admin/players/${rowId}/admin?enabled=${row.is_admin ? 0 : 1}`, { method: 'PATCH' })
+      if (name === 'finishRoom') await post(`/admin/rooms/${rowId}/finish`)
+      if (name === 'resolveReport') await post(`/admin/reports/${rowId}/resolve`)
+      if (name === 'resolveFlag') await post(`/admin/flags/${rowId}/resolve`)
+      await load()
+    } catch (e) {
+      if (e.status === 401 || e.status === 403) {
+        setAuthError({ status: e.status, message: e.message })
+        return
+      }
+      setError(e.message || '操作失败')
+    }
   }
 
   const handleTestConfig = async (row) => {
@@ -469,7 +487,7 @@ function AdminAuthError({ error }) {
     <div className="empty-state">
       <h3>{needsLogin ? '请先在开始页面登录管理员账号' : '当前统一账号没有管理员权限'}</h3>
       <p>{error.message}</p>
-      <a className="primary link-button" href="/">去开始页登录</a>
+      <a className="primary link-button" href="/soup/">去海龟汤大厅登录</a>
     </div>
   )
 }

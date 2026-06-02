@@ -4,7 +4,7 @@ from auth_utils import current_player
 from database import execute, fetch_all, fetch_one, get_setting
 from judge import scan_text
 from models import RoomCreateBody
-from utils import clean_content, public_player, room_id
+from utils import SQL_NOW, clean_content, public_player, room_id
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
@@ -17,6 +17,7 @@ def _public_room(row: dict) -> dict:
 @router.get("/")
 async def list_rooms(player: dict = Depends(current_player)):
     del player
+    finished_retention_hours = int(await get_setting("finished_room_retention_hours", "1"))
     rows = await fetch_all(
         """
         SELECT r.id, r.surface, r.status, r.created_by, r.winner_id, r.created_at, r.finished_at,
@@ -26,7 +27,7 @@ async def list_rooms(player: dict = Depends(current_player)):
                (SELECT COUNT(*) FROM game_logs gl WHERE gl.room_id = r.id AND gl.type = 'ask') AS ask_count,
                (SELECT COUNT(*) FROM room_presence rp
                 WHERE rp.room_id = r.id
-                  AND rp.last_active_at > datetime('now', '-1 hour')) AS active_players
+                  AND rp.last_active_at > datetime('now', 'localtime', '-1 hour')) AS active_players
         FROM rooms r
         LEFT JOIN players p ON p.id = r.created_by
         LEFT JOIN puzzles pz ON pz.id = r.puzzle_id
@@ -34,11 +35,12 @@ async def list_rooms(player: dict = Depends(current_player)):
            OR (
              r.status = 'finished'
              AND r.finished_at IS NOT NULL
-             AND r.finished_at >= datetime('now', '-48 hours')
+             AND r.finished_at >= datetime('now', 'localtime', ?)
            )
         ORDER BY CASE r.status WHEN 'playing' THEN 0 WHEN 'waiting' THEN 1 ELSE 2 END, r.created_at DESC
         LIMIT 50
-        """
+        """,
+        (f"-{finished_retention_hours} hours",),
     )
     return rows
 
@@ -151,7 +153,7 @@ async def close_room(room_id: str, player: dict = Depends(current_player)):
     if room["created_by"] != player["id"] and not player.get("is_admin"):
         raise HTTPException(status_code=403, detail="只能关闭自己的房间")
     await execute(
-        "UPDATE rooms SET status = 'finished', finished_at = CURRENT_TIMESTAMP WHERE id = ?",
+        f"UPDATE rooms SET status = 'finished', finished_at = {SQL_NOW} WHERE id = ?",
         (room_id,),
     )
     return {"ok": True}

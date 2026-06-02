@@ -54,6 +54,9 @@ HOP_BY_HOP_HEADERS = {
     "upgrade",
 }
 PWD_CONTEXT = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto") if CryptContext else None
+# SQLite CURRENT_TIMESTAMP is UTC; use China wall time for stored timestamps.
+SQL_NOW = "datetime('now', 'localtime')"
+TIMEZONE_MIGRATION_KEY = "platform_timezone_utc_to_shanghai_20260602"
 
 
 _PLATFORM_TOOLS = [
@@ -83,7 +86,7 @@ _PLATFORM_TOOLS = [
     },
     {
         "name": "play",
-        "description": "执行游戏操作，参数详见 get_guide(game)",
+        "description": "执行游戏操作；除 game/action 外，可直接传入 player_id、mode、room_id 等游戏参数，具体要求先看 get_guide(game)。",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -206,6 +209,78 @@ def _row_dict(row):
     return dict(row) if row is not None else None
 
 
+def _table_exists(conn, table):
+    return bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone())
+
+
+def _create_platform_localtime_triggers(conn):
+    specs = {
+        "toy_users": ("id", ("created_at", "last_active_at")),
+        "user_bindings": ("id", ("created_at",)),
+    }
+    for table, (pk, columns) in specs.items():
+        if not _table_exists(conn, table):
+            continue
+        assignments = ", ".join(f"{column} = datetime('now', 'localtime')" for column in columns)
+        conn.execute(
+            f"""
+            CREATE TRIGGER IF NOT EXISTS trg_{table}_insert_localtime
+            AFTER INSERT ON {table}
+            BEGIN
+                UPDATE {table}
+                SET {assignments}
+                WHERE {pk} = NEW.{pk};
+            END
+            """
+        )
+
+
+def _migrate_platform_timestamps():
+    with _db_connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        _create_platform_localtime_triggers(conn)
+        if conn.execute("SELECT value FROM settings WHERE key = ?", (TIMEZONE_MIGRATION_KEY,)).fetchone():
+            conn.commit()
+            return
+        if _table_exists(conn, "toy_users"):
+            conn.execute(
+                """
+                UPDATE toy_users
+                SET last_active_at = datetime(last_active_at, '+8 hours')
+                WHERE last_active_at IS NOT NULL
+                  AND created_at IS NOT NULL
+                  AND last_active_at = created_at
+                """
+            )
+            conn.execute(
+                """
+                UPDATE toy_users
+                SET created_at = datetime(created_at, '+8 hours')
+                WHERE created_at IS NOT NULL
+                """
+            )
+        if _table_exists(conn, "user_bindings"):
+            conn.execute(
+                """
+                UPDATE user_bindings
+                SET created_at = datetime(created_at, '+8 hours')
+                WHERE created_at IS NOT NULL
+                """
+            )
+        conn.execute("INSERT INTO settings (key, value) VALUES (?, '1')", (TIMEZONE_MIGRATION_KEY,))
+        conn.commit()
+
+
 def _hash_password(password):
     if PWD_CONTEXT:
         return PWD_CONTEXT.hash(password)
@@ -317,7 +392,7 @@ def _current_account(raw_token):
         ).fetchone())
         if not user:
             raise _McpError(-32001, "账号不存在或已删除")
-        conn.execute("UPDATE toy_users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
+        conn.execute("UPDATE toy_users SET last_active_at = datetime('now', 'localtime') WHERE id = ?", (user_id,))
         conn.commit()
         user = _row_dict(conn.execute("SELECT * FROM toy_users WHERE id = ?", (user_id,)).fetchone())
     return user
@@ -349,7 +424,7 @@ def _login_or_register(username, password, *, is_ai):
                 """
                 UPDATE toy_users
                 SET is_ai = ?,
-                    last_active_at = CURRENT_TIMESTAMP,
+                    last_active_at = datetime('now', 'localtime'),
                     deleted_at = NULL
                 WHERE id = ?
                 """,
@@ -398,7 +473,7 @@ def _login_existing_account(username, password):
         ).fetchone())
         if not user or not _verify_password(password, user["password_hash"]):
             raise _McpError(-32001, "用户名或密码错误")
-        conn.execute("UPDATE toy_users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?", (user["id"],))
+        conn.execute("UPDATE toy_users SET last_active_at = datetime('now', 'localtime') WHERE id = ?", (user["id"],))
         conn.commit()
         user = _row_dict(conn.execute("SELECT * FROM toy_users WHERE id = ?", (user["id"],)).fetchone())
     return {
@@ -439,7 +514,7 @@ def _admin_user_rows():
                     FROM binding_tokens t
                     WHERE t.ai_user_id = u.id
                       AND t.used = 0
-                      AND t.expires_at > CURRENT_TIMESTAMP
+                      AND t.expires_at > datetime('now', 'localtime')
                 ) AS active_binding_tokens
             FROM toy_users u
             ORDER BY u.deleted_at IS NOT NULL ASC, u.id DESC
@@ -477,7 +552,7 @@ def _admin_update_user(user_id, body, admin_user):
             SET username = ?,
                 is_ai = ?,
                 is_admin = ?,
-                deleted_at = CASE WHEN ? THEN COALESCE(deleted_at, CURRENT_TIMESTAMP) ELSE NULL END
+                deleted_at = CASE WHEN ? THEN COALESCE(deleted_at, datetime('now', 'localtime')) ELSE NULL END
             WHERE id = ?
             """,
             (username, is_ai, is_admin, deleted, user_id),
@@ -529,7 +604,7 @@ def _generate_binding_token(raw_token):
     expires_at = int(time.time()) + BINDING_TOKEN_SECONDS
     with _db_connect() as conn:
         conn.execute(
-            "INSERT INTO binding_tokens (token, ai_user_id, expires_at, used) VALUES (?, ?, datetime(?, 'unixepoch'), 0)",
+            "INSERT INTO binding_tokens (token, ai_user_id, expires_at, used) VALUES (?, ?, datetime(?, 'unixepoch', 'localtime'), 0)",
             (token, user["id"], expires_at),
         )
         conn.commit()
@@ -549,7 +624,7 @@ def _bind_account(human_token, binding_token):
             SELECT * FROM binding_tokens
             WHERE token = ?
               AND used = 0
-              AND expires_at > CURRENT_TIMESTAMP
+              AND expires_at > datetime('now', 'localtime')
             """,
             (binding_token,),
         ).fetchone())
@@ -563,6 +638,23 @@ def _bind_account(human_token, binding_token):
         )
         conn.execute("UPDATE binding_tokens SET used = 1 WHERE token = ?", (binding_token,))
         conn.commit()
+    return {"ok": True}
+
+
+def _unbind_account(raw_token, ai_user_id):
+    human = _current_account(raw_token)
+    if human.get("is_ai"):
+        raise _McpError(-32602, "只有人类账号可以解绑")
+    if not ai_user_id:
+        raise _McpError(-32602, "ai_user_id 必填")
+    with _db_connect() as conn:
+        deleted = conn.execute(
+            "DELETE FROM user_bindings WHERE human_user_id = ? AND ai_user_id = ?",
+            (human["id"], ai_user_id),
+        ).rowcount
+        conn.commit()
+    if deleted == 0:
+        raise _McpError(-32004, "绑定关系不存在")
     return {"ok": True}
 
 
@@ -775,7 +867,8 @@ def _turtle_soup_guide():
         "game": "turtle_soup",
         "actions": {
             "register": "username, password -> 仅注册账号；注册成功返回 token，让你的人类把 MCP 地址改为 https://toy.cedarstar.org/{token} 后获得持久身份",
-            "create_random": "创建随机题房间；题库抽取的大多微恐，请酌情选择",
+            "list_puzzles": "列出可选题库题目，返回 id/title/surface/tags，不返回汤底",
+            "create_random": "创建题库房间；可传 puzzle_id 指定题目，不传则随机抽题。题库抽取的大多微恐，请酌情选择",
             "create_custom": "surface, answer, tags(可选) -> 创建自定义题房间",
             "generate": "生成一题 surface/answer 预览，不开房。注意：AI 生成题质量不稳定，建议确认内容后再用 create_custom 开房",
             "close_room": "room_id -> 关闭自己创建的房间",
@@ -787,7 +880,7 @@ def _turtle_soup_guide():
             "status": "room_id, log_limit(可选) -> 查看进度和问答记录；log_limit 返回最新 N 条日志；提示日志含 hint_text/resolved",
             "list_rooms": "查看大厅房间列表",
         },
-        "notes": ["题库抽取的大多微恐，请酌情选择。"],
+        "notes": ["先用 list_puzzles 查看可选题；create_random 传 puzzle_id 可指定题，不传则随机。题库抽取的大多微恐，请酌情选择。"],
     }
 
 
@@ -954,6 +1047,9 @@ class CedarToyHandler(BaseHTTPRequestHandler):
             self._proxy_to_soup()
             return
         path = self.path.split("?", 1)[0]
+        if path == "/api/auth/bind":
+            self._handle_api_unbind()
+            return
         if path.startswith("/api/admin/users/"):
             self._handle_admin_release_user(path)
             return
@@ -1013,6 +1109,18 @@ class CedarToyHandler(BaseHTTPRequestHandler):
         try:
             body = self._read_json_body()
             result = _bind_account(_extract_bearer(self.headers), body.get("binding_token"))
+            self._send_json(result)
+        except _McpError as exc:
+            self._send_json({"error": exc.message}, status=401 if exc.code == -32001 else 400)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+        except Exception as exc:
+            self._send_json({"error": "server error", "detail": str(exc)}, status=500)
+
+    def _handle_api_unbind(self):
+        try:
+            body = self._read_json_body()
+            result = _unbind_account(_extract_bearer(self.headers), body.get("ai_user_id"))
             self._send_json(result)
         except _McpError as exc:
             self._send_json({"error": exc.message}, status=401 if exc.code == -32001 else 400)
@@ -1363,6 +1471,7 @@ class ThreadPoolHTTPServer(HTTPServer):
 
 
 def main():
+    _migrate_platform_timestamps()
     server = ThreadPoolHTTPServer((HOST, PORT), CedarToyHandler)
     print(f"CedarToy listening on {HOST}:{PORT} with max_workers={MAX_WORKERS}")
     server.serve_forever()

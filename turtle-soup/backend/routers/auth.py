@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from auth_utils import create_token, current_player, hash_password, verify_password
 from database import execute, fetch_one
 from models import AuthBody
-from utils import clean_content, public_player
+from utils import SQL_NOW, clean_content, public_player
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -40,7 +40,7 @@ async def guest_login(body: GuestRequest | None = None):
             player = await fetch_one("SELECT * FROM players WHERE id = ?", (player_id,))
         else:
             await execute(
-                "UPDATE players SET user_id = ?, is_guest = 0, is_ai = ?, is_admin = ?, source = 'web', last_active_at = CURRENT_TIMESTAMP WHERE id = ?",
+                f"UPDATE players SET user_id = ?, is_guest = 0, is_ai = ?, is_admin = ?, source = 'web', last_active_at = {SQL_NOW} WHERE id = ?",
                 (user_id, 1 if toy_user["is_ai"] else 0, 1 if toy_user["is_admin"] else 0, player["id"]),
             )
             player = await fetch_one("SELECT * FROM players WHERE id = ?", (player["id"],))
@@ -75,7 +75,7 @@ async def login(body: AuthBody):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     src = _source(body.source)
     await execute(
-        "UPDATE players SET source = ?, is_ai = CASE WHEN ? = 'mcp' THEN 1 ELSE is_ai END, last_active_at = CURRENT_TIMESTAMP WHERE id = ?",
+        f"UPDATE players SET source = ?, is_ai = CASE WHEN ? = 'mcp' THEN 1 ELSE is_ai END, last_active_at = {SQL_NOW} WHERE id = ?",
         (src, src, player["id"]),
     )
     player = await fetch_one("SELECT * FROM players WHERE id = ?", (player["id"],))

@@ -2,7 +2,8 @@ import json
 import re
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from .questions import (
     FAST_BATCH_SIZE_MAX,
@@ -369,8 +370,8 @@ def mbti_get_result(arguments):
     mbti_type, result_detail_json, completed_at = row
     result_detail = json.loads(result_detail_json or "{}")
     mode = result_detail.get("mode") or "unknown"
-    label = datetime.fromtimestamp(completed_at, tz=timezone.utc).strftime(
-        "%Y-%m-%d %H:%M UTC"
+    label = datetime.fromtimestamp(completed_at, tz=ZoneInfo("Asia/Shanghai")).strftime(
+        "%Y-%m-%d %H:%M"
     )
     try:
         return format_stored_result(mode, mbti_type, label)
@@ -505,8 +506,8 @@ def _raise_no_active_session(conn, player_id: str) -> None:
         mbti_type, result_detail_json, completed_at = row
         result_detail = json.loads(result_detail_json or "{}")
         mode = result_detail.get("mode") or "unknown"
-        label = datetime.fromtimestamp(completed_at, tz=timezone.utc).strftime(
-            "%Y-%m-%d %H:%M UTC"
+        label = datetime.fromtimestamp(completed_at, tz=ZoneInfo("Asia/Shanghai")).strftime(
+            "%Y-%m-%d %H:%M"
         )
         raise JsonRpcError(
             -32002,
