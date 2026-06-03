@@ -216,7 +216,8 @@ export default function Lobby() {
           <div className="terminal-preview" aria-live="polite">
             <p>&gt; 正在等待选题...</p>
             <p>&gt; 当前题目：<b>{random?.title || '尚未抽取'}</b></p>
-            <p className="type-line">&gt; {random?.surface || '点击“随机抽题”抽取一碗未解之汤。'}</p>
+            <p>&gt; 点击标题选择题目。</p>
+            <p className="type-line">&gt; {random?.surface || '或点击“随机抽题”抽取一碗未解之汤。'}</p>
           </div>
           <div className="actions">
             <button type="button" disabled={randomCooldown > 0} onClick={roll}>{randomCooldown ? `${randomCooldown}s` : '随机抽题'}</button>

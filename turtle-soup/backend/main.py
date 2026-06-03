@@ -26,10 +26,17 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Turtle Soup", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="Turtle Soup",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://toy.cedarstar.org"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

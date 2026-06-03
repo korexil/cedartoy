@@ -185,7 +185,7 @@ async def _ask_impl(body: ContentBody, player: dict) -> tuple[dict, asyncio.Task
                 (body.room_id, player["id"], n, f"-{seconds} seconds"),
             )
             if int(too_fast["c"]) >= n:
-                raise HTTPException(status_code=429, detail="AI 提问太快，请稍后再试")
+                raise HTTPException(status_code=429, detail="AI 提问太快了，请先思考已有线索，稍等几秒后再问。")
     try:
         result = await judge.judge_ask(room["surface"], room["answer"], question)
     except HTTPException as exc:

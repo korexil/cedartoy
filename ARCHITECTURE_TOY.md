@@ -6,14 +6,14 @@
 
 Toy Platform 目前由两个本地服务组成：
 
-- `cedartoy`：Toy 聚合层，监听 `0.0.0.0:8002`。根路径 `POST /` 是统一 MCP 入口，直接实现 `list_games`、`get_guide`、`play`、`account`；MBTI 和 DND 在本进程处理，海龟汤动作按需转发到 `turtle-soup:8012`。`GET /` 返回 Toy 首页 `index.html`（含登录/绑定 UI）；`POST /{token}` 支持 AI 持久化 MCP 连接。
+- `cedartoy`：Toy 聚合层，监听 `127.0.0.1:8002`。根路径 `POST /` 是统一 MCP 入口，直接实现 `list_games`、`get_guide`、`play`、`account`；MBTI 和 DND 在本进程处理，海龟汤动作按需转发到 `turtle-soup:8012`。`GET /` 返回 Toy 首页 `index.html`（含登录/绑定 UI）；`POST /{token}` 支持 AI 持久化 MCP 连接。
 - `turtle-soup`：海龟汤服务，监听 `127.0.0.1:8012`，提供海龟汤 Web/API/SSE，以及只属于海龟汤自身的 `/mcp/play` 接口。
 
 公网实际链路：
 
 ```text
 Cloudflare Tunnel
-  -> cedartoy 0.0.0.0:8002
+  -> cedartoy 127.0.0.1:8002
       -> GET /                 cedartoy Toy 首页 index.html
       -> POST /                cedartoy MCP 聚合层：list_games/get_guide/play/account
       -> POST /{token}         cedartoy MCP（AI 持久 token，等同根 MCP）
@@ -24,7 +24,7 @@ Cloudflare Tunnel
       -> /mcp/play             legacy 海龟汤 MCP play 反代到 127.0.0.1:8012
 ```
 
-本机 nginx 也配置了 `toy.cedarstar.org` 的 HTTP server，但公网 HTTPS 当前由 Cloudflare Tunnel 直连 `8002`，不一定经过 nginx。新的 MCP 聚合入口是 `cedartoy` 的 `POST /`，不依赖 nginx `/mcp` 规则。
+本机 nginx 也配置了 `toy.cedarstar.org` 的 HTTP server，但公网 HTTPS 当前由 Cloudflare Tunnel 直连本机 `127.0.0.1:8002`，不一定经过 nginx。新的 MCP 聚合入口是 `cedartoy` 的 `POST /`，不依赖 nginx `/mcp` 规则。
 
 ## 2. 项目结构
 
@@ -91,7 +91,7 @@ Cloudflare Tunnel
 
 | 服务 | 端口 | 监听地址 | 管理方式 | 职责 |
 | --- | --- | --- | --- | --- |
-| `cedartoy` | `8002` | `0.0.0.0` | supervisord | Toy 聚合层、根 MCP `POST /`、MBTI `/mbti`、DND `/dnd`、反代 `/soup*` 和 legacy `/mcp*` 到 `8012` |
+| `cedartoy` | `8002` | `127.0.0.1` | supervisord | Toy 聚合层、根 MCP `POST /`、MBTI `/mbti`、DND `/dnd`、反代 `/soup*` 和 legacy `/mcp*` 到 `8012` |
 | `turtle-soup` | `8012` | `127.0.0.1` | supervisord | 海龟汤后端、静态前端、SSE、海龟汤自身 `/mcp/play` |
 | nginx | `80` | public/local | system nginx | 本机 HTTP 反代，`toy.cedarstar.org` server 块 |
 | Cloudflare Tunnel | HTTPS | Cloudflare edge | systemd `cloudflared` | 公网 HTTPS 入口，当前直连本机 `cedartoy:8002` |
@@ -100,7 +100,7 @@ Cloudflare Tunnel
 
 `cedartoy` 是公网第一跳和聚合层，代码位于根目录 `server.py`。它使用标准库 `BaseHTTPRequestHandler` + `ThreadPoolHTTPServer`，不是 FastAPI；内部通过 `ThreadPoolExecutor(max_workers=50)` 和 `BoundedSemaphore` 控制并发，排队超过 `QUEUE_TIMEOUT_SECONDS=10` 会返回服务繁忙类错误。它直接处理 Toy 首页、平台账号 REST、根 MCP、MBTI/DND MCP，并把 `/soup*` 与 legacy `/mcp*` 反代给 `turtle-soup`。
 
-`turtle-soup` 是海龟汤专用 FastAPI 服务，代码位于 `turtle-soup/backend`。它负责海龟汤自己的 JWT、房间、日志、SSE、裁判 LLM、管理后台 API 和静态前端。除 legacy `/mcp/play` 外，新的聚合 MCP 不在该服务内实现。
+`turtle-soup` 是海龟汤专用 FastAPI 服务，代码位于 `turtle-soup/backend`。它负责海龟汤自己的 JWT、房间、日志、SSE、裁判 LLM、管理后台 API 和静态前端；FastAPI docs/OpenAPI 入口关闭，CORS 仅允许 `https://toy.cedarstar.org`。除 legacy `/mcp/play` 外，新的聚合 MCP 不在该服务内实现。
 
 ### 3.2 典型请求链路
 
@@ -674,15 +674,15 @@ action 列表：
 | --- | --- | --- |
 | `list_rooms` | 无 | 返回 `waiting/playing` 房间列表，字段 `id/surface/status/created_at` |
 | `list_puzzles` | 无 | 返回 enabled 题库列表，字段 `id/title/surface/tags`，不返回汤底 |
-| `status` | `room_id`, `log_limit?` | 返回房间公开状态与日志；`log_limit` 取最新 N 条后按时间正序返回；日志含 `username/is_guest/is_ai/hint_text/resolved`，不返回汤底和记事板 |
+| `status` | `room_id`, `log_limit?` | 返回房间公开状态与日志；`log_limit` 取最新 N 条后按时间正序返回；日志含 `username/is_guest/is_ai/hint_text/resolved`，不返回房间表的 `answer` 和记事板；若房间已结束，公开日志中的 `game_over` 揭晓行会包含最终汤底 |
 | `register` | `username`, `password` | 仅注册 Toy AI 账号，返回 path token；让人类把 MCP 地址改为 `https://toy.cedarstar.org/{token}` 后获得持久身份 |
 | `create_random` | `puzzle_id?`, `path_token?` | 以 MCP 玩家身份创建题库房间；传 `puzzle_id` 时指定题，不传则随机；题库抽取大多微恐 |
 | `create_custom` | `surface`, `answer`, `tags?`, `path_token?` | 创建自定义题房间，复用人类端 `create_room(mode="custom")`，走 `scan_text` 审核并写入投稿表 |
 | `generate` | 无 | 调用 `/game/generate` 返回 `surface/answer` 预览，不写库、不开房；满意后再用 `create_custom` |
 | `close_room` | `room_id`, `path_token?` | 复用 `/rooms/{room_id}/close`，只允许房主或管理员关闭 |
 | `join` | `room_id` | 查询并返回房间公开信息 |
-| `ask` | `room_id`, `content`, `path_token?`, `log_limit?` | 调用海龟汤 `ask` 逻辑，`content` 最多 200 字，受 AI 冷却限制；响应保留本次 ask 结果字段，并追加 `room` 与 `logs_since_last_own_action`：从该 MCP 玩家上一次公开动作（`ask/guess/hint_accept/hint_reject`）之后到本次 ask 完成之间的公开日志，不包含上次自己的那条。若无上次动作则返回开局以来日志；本次 ask 对应日志会额外标记 `is_current_ask_result=true`，便于 AI 区分自己的最新回答；`log_limit` 可限制返回条数；若房间已结束返回「房间已结束，无法继续提问」 |
-| `guess` | `room_id`, `content`, `path_token?` | 调用海龟汤 `guess` 逻辑，`content` 最多 1000 字，超长返回明确错误 |
+| `ask` | `room_id`, `content`, `path_token?` | 调用海龟汤 `ask` 逻辑，`content` 最多 200 字，受 AI 冷却限制；响应保留本次 ask 结果字段，并追加 `room` 与 `logs_since_last_own_action`：从该 MCP 玩家上一次公开动作（`ask/guess/hint_accept/hint_reject`）之后到本次 ask 完成之间的全部公开日志，不包含上次自己的那条。若无上次动作则返回开局以来日志；本次 ask 对应日志会额外标记 `is_current_ask_result=true`，便于 AI 区分自己的最新回答；若房间已结束，返回带 `status` 查看指引和剧透提醒的错误 |
+| `guess` | `room_id`, `content`, `path_token?` | 调用海龟汤 `guess` 逻辑，`content` 最多 1000 字，超长返回明确错误；若房间已结束，返回带 `status` 查看指引和剧透提醒的错误 |
 | `hint_request` | `room_id`, `path_token?` | 主动请求一次提示，每个玩家每房间最多 3 次；同房间提示生成串行调用裁判 LLM，最多 3 次格式重试 |
 | `hint_respond` | `room_id`, `log_id`, `accept`, `path_token?` | 接受或拒绝自己请求的提示 |
 | `note_list` | `room_id` | 返回该房间所有记事 |
@@ -695,7 +695,7 @@ action 列表：
 - 传 `path_token`：解析 Toy 平台账号，按 `toy_users.id` 创建或复用 `players.user_id`，并将 `username/is_ai/is_admin/source` 同步到海龟汤玩家记录。
 - 不传 `path_token`：创建 `is_guest=1, is_ai=1, source='mcp'` 的游客 AI 玩家；这类身份不持久。
 
-海龟汤 MCP 返回的是 `turtle-soup/backend/mcp_app.py` 的普通 JSON，不是 MCP content envelope；根 `server.py` 会再把该 JSON stringify 成 MCP text content。`status` 和 `join` 都不会返回汤底；`status` 会返回公开日志的玩家名、`hint_text/resolved` 以便 MCP 端同步多人上下文和处理 `hint_respond`；`ask` 也会在本次提问结果外追加 `logs_since_last_own_action`，避免 AI 与人类同房时看不见自己两次动作之间别人产生的问答；`guess` 猜中后的 `game_over` 才会让网页侧收到汤底；`note_list` 独立于 `status`，避免进度查询泄露记事板。
+海龟汤 MCP 返回的是 `turtle-soup/backend/mcp_app.py` 的普通 JSON，不是 MCP content envelope；根 `server.py` 会再把该 JSON stringify 成 MCP text content。`join` 不会返回汤底；`status` 不直接返回房间表 `answer`，但会返回公开日志的玩家名、`hint_text/resolved` 和结束后的 `game_over` 揭晓行，以便 MCP 端同步多人上下文、处理 `hint_respond`，并在对局结束后查看最终汤底；`ask` 也会在本次提问结果外追加 `logs_since_last_own_action`，避免 AI 与人类同房时看不见自己两次动作之间别人产生的问答；`guess` 猜中后的 `game_over` 会让网页侧收到汤底，也会写入公开日志；`note_list` 独立于 `status`，避免进度查询泄露记事板。
 
 ### 6.5 `play(game="mbti", ...)`
 
@@ -1103,7 +1103,7 @@ Room 移动端规则：顶部栏只保留房间状态（隐藏「游戏大厅」
 6. 裁判 LLM 不配置 `judge_api_configs` 时，`ask/guess/generate/hint/AI扫描` 会返回裁判不可用或失败；普通登录、开房、房间列表不依赖 LLM。
 7. `judge_api_configs.api_key` 存在 SQLite 中，管理 API 列表会脱敏，但数据库文件本身需要限制访问权限。启用配置前不只要测 HTTP 连通，还要用真实 `ask/guess/hint_request` 场景确认输出格式与语义；连通但格式错误的节点会造成玩家看到 `【系统提示】系统开小差了...` 或提示生成 503。
 8. `settings.judge_prompt`、`settings.generate_prompt`、`settings.judge_prompt_clue` 不走缓存；通过管理后台或直接改表后，下一次裁判/生成调用立即生效。提示生成另有房间级异步锁，同一房间内手动/自动提示会排队调用裁判 LLM。
-9. 汤底保护：普通 `/rooms/{room_id}` 和 MCP `status` 不返回 `answer`；管理员 `/admin/rooms` 会返回完整 answer；猜中后 SSE `game_over` 会下发纯 `answer`，揭晓日志会额外显示还原度。
+9. 汤底保护：普通 `/rooms/{room_id}`、MCP `join` 和进行中房间的 MCP `status` 不返回房间表 `answer`；管理员 `/admin/rooms` 会返回完整 answer；猜中后 SSE `game_over` 会下发纯 `answer`，同时写入含还原度和汤底的公开揭晓日志，因此结束后 MCP `status` 可通过日志看到最终汤底。
 10. `rooms/profile/me` 当前存在路由顺序风险，可能被 `/{room_id}` 捕获；若个人页不可用，应先修正 `routers/rooms.py` 中路由顺序。
 11. SSE 通过内存连接池实现，多进程部署时不同进程之间不会共享事件；当前 supervisord 启动单 uvicorn 进程。
 12. `cedartoy` MBTI 和 DND session 上限均为 `MAX_SESSIONS=500`，进行中 session 24 小时未活动清理，结果 48 小时清理。
