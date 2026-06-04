@@ -35,11 +35,27 @@ function HintBanner({ log, onRespond, busy, currentPlayerId }) {
   )
 }
 
-function AutoHintBanner({ log, special = false }) {
+function AutoHintBanner({ log, special = false, accepted, onAccept, onReject }) {
+  const hintText = log.hint_text || log.content
+  if (special || accepted) {
+    return (
+      <div className={`log-hint-banner readonly${special ? ' special-clue' : ' auto-prompt'}`} role="region" aria-label={special ? '特殊线索' : '提示'}>
+        <div className="log-hint-label">&gt; {special ? '【特殊线索】' : '【提示】'}</div>
+        <p>{hintText}</p>
+      </div>
+    )
+  }
   return (
-    <div className={`log-hint-banner readonly${special ? ' special-clue' : ' auto-prompt'}`} role="region" aria-label={special ? '特殊线索' : '提示'}>
-      <div className="log-hint-label">&gt; {special ? '【特殊线索】' : '【提示】'}</div>
-      <p>{log.hint_text || log.content}</p>
+    <div className="log-hint-banner auto-prompt auto-prompt-pending" role="region" aria-label="提示">
+      <div className="log-hint-label">&gt; 【提示】</div>
+      <p className="auto-prompt-blur">{hintText}</p>
+      <div className="auto-prompt-overlay">
+        <span>收到一条提示</span>
+        <div className="auto-prompt-actions">
+          <button type="button" onClick={() => onReject(log.id)}>拒绝</button>
+          <button type="button" className="pixel-primary" onClick={() => onAccept(log.id)}>接受查看</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -127,8 +143,16 @@ function systemNoticeContent(content) {
   return ''
 }
 
+function loadAcceptedHints() {
+  try { return new Set(JSON.parse(sessionStorage.getItem('accepted_hints') || '[]')) } catch { return new Set() }
+}
+function saveAcceptedHints(ids) {
+  sessionStorage.setItem('accepted_hints', JSON.stringify([...ids]))
+}
+
 export default function GameLog({ logs, onHintRespond, hintBusy, currentPlayerId }) {
   const ordered = sortLogs(logs)
+  const [acceptedAutoHints, setAcceptedAutoHints] = useState(loadAcceptedHints)
   const [compactLogTime, setCompactLogTime] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches,
   )
@@ -161,7 +185,28 @@ export default function GameLog({ logs, onHintRespond, hintBusy, currentPlayerId
           )
         }
         if (log.type === 'auto_hint' || log.judgment === 'auto_hint') {
-          return <AutoHintBanner key={`auto-${log.id}`} log={log} special={log.judgment === 'auto_hint'} />
+          const special = log.judgment === 'auto_hint'
+          const accepted = acceptedAutoHints.has(log.id)
+          return (
+            <AutoHintBanner
+              key={`auto-${log.id}`}
+              log={log}
+              special={special}
+              accepted={accepted}
+              onAccept={(id) => {
+                const next = new Set(acceptedAutoHints)
+                next.add(id)
+                saveAcceptedHints(next)
+                setAcceptedAutoHints(next)
+              }}
+              onReject={(id) => {
+                const next = new Set(acceptedAutoHints)
+                next.add(id)
+                saveAcceptedHints(next)
+                setAcceptedAutoHints(next)
+              }}
+            />
+          )
         }
         if (log.type === 'hint_accept' || log.type === 'hint_reject') {
           return null
