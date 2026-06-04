@@ -42,7 +42,7 @@ async def cleanup_inactive_rooms() -> None:
 
 
 async def cleanup_finished_rooms() -> None:
-    hours = int(await get_setting("finished_room_retention_hours", "1"))
+    hours = int(await get_setting("finished_room_retention_hours", "24"))
     rooms = await fetch_all(
         """
         SELECT id FROM rooms
