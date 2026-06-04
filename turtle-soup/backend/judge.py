@@ -16,6 +16,7 @@ from utils import ANSWER_LIMIT, SURFACE_LIMIT, TITLE_LIMIT
 fail_counts: dict[int, int] = {}
 _rr_index: int = 0
 _rr_lock = asyncio.Lock()
+_guess_lock = asyncio.Lock()
 FAIL_LIMIT = 5
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
 logger = logging.getLogger(__name__)
@@ -446,17 +447,142 @@ def _strip_guess_preamble(text: str) -> str:
     return text[min(markers) :].strip()
 
 
+def _strip_json_fence(text: str) -> str:
+    stripped = _strip_code_fence(text).strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end >= start:
+        return stripped[start : end + 1]
+    return stripped
+
+
+def _extract_core_conditions(answer: str) -> list[str]:
+    marker = "【通关判定条件】"
+    idx = answer.find(marker)
+    if idx < 0:
+        return []
+    section = answer[idx + len(marker) :]
+    next_marker = re.search(r"\n【[^】]+】", section)
+    if next_marker:
+        section = section[: next_marker.start()]
+    conditions: list[str] = []
+    current: list[str] = []
+    for raw_line in section.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if re.match(r"^\d+[\.\、]", line):
+            if current:
+                conditions.append(" ".join(current).strip())
+            current = [re.sub(r"^\d+[\.\、]\s*", "", line)]
+        elif current:
+            current.append(line)
+    if current:
+        conditions.append(" ".join(current).strip())
+    return [item for item in conditions if item]
+
+
+def _parse_guess_json(text: str) -> dict[str, Any] | None:
+    try:
+        data = json.loads(_strip_json_fence(text))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        score = int(data.get("score"))
+        missing_core_count = int(data.get("missing_core_count"))
+    except Exception:
+        return None
+    success = bool(data.get("success"))
+    if not 0 <= score <= 100 or missing_core_count < 0:
+        return None
+    core_checks = data.get("core_checks")
+    if not isinstance(core_checks, list):
+        return None
+    public_answer = data.get("public_answer")
+    if public_answer is not None and not isinstance(public_answer, str):
+        return None
+    if missing_core_count >= 3:
+        success = False
+        if not 0 <= score <= 39:
+            score = 39
+    elif missing_core_count == 2:
+        success = False
+        if not 40 <= score <= 59:
+            score = 59
+    elif missing_core_count == 1:
+        success = False
+        if not 60 <= score <= 79:
+            score = 79
+    else:
+        success = True
+        if not 80 <= score <= 100:
+            score = 80
+    return {
+        "success": success,
+        "score": score,
+        "missing_core_count": missing_core_count,
+        "core_checks": core_checks,
+        "answer": public_answer.strip() if isinstance(public_answer, str) and public_answer.strip() else None,
+        "raw_json": data,
+    }
+
+
+def _is_local_question_guess(guess: str) -> bool:
+    text = guess.strip()
+    if not text:
+        return True
+    if len(text) > 120 or "\n" in text:
+        return False
+    if text.endswith(("?", "？", "吗", "呢")):
+        return True
+    question_words = ("是不是", "是否", "有没有", "会不会", "难道")
+    return any(word in text for word in question_words)
+
+
 async def judge_guess(surface: str, answer: str, guess: str) -> dict[str, Any]:
+    if _is_local_question_guess(guess):
+        return {
+            "success": False,
+            "score": 0,
+            "missing_core_count": None,
+            "answer": None,
+            "raw_json": {
+                "success": False,
+                "score": 0,
+                "missing_core_count": None,
+                "core_checks": [],
+                "reason": "玩家提交内容是单句问句或局部确认，不是完整汤底猜测。",
+            },
+            "raw_response": None,
+            "request_messages": None,
+        }
+    core_conditions = _extract_core_conditions(answer)
+    condition_text = "\n".join(f"{idx}. {item}" for idx, item in enumerate(core_conditions, start=1))
     messages = [
-        {"role": "system", "content": await _get_judge_prompt_guess()},
         {
             "role": "system",
             "content": (
-                "本次请求类型是猜测汤底，不是普通提问。禁止只回答 是/不是/无关/是也不是。"
-                "必须严格返回以下二选一格式：\n"
-                "【未通关】\n还原度：xx%\n"
-                "或\n"
-                "【通关】\n还原度：xx%\n【汤底】完整汤底故事文本"
+                await _get_judge_prompt_guess()
+                + "\n\n你现在必须返回严格 JSON，不要返回 Markdown，不要返回【通关】/【未通关】文本。"
+                "所有后台核对只允许放在 JSON 字段中，前端不会看到这些字段。"
+            ),
+        },
+        {
+            "role": "system",
+            "content": (
+                "本次请求类型是猜测汤底，不是普通提问。"
+                "如果玩家内容只是单个事实确认、是非问题、局部追问、或没有尝试还原完整故事，"
+                "必须判定 success=false。"
+                "逐条判断 core_conditions 中每一条是否被玩家猜测明确盘出；只要 missing_core_count > 0，success 必须为 false。"
+                "score 必须遵守：missing_core_count >= 3 时只能 0-39；missing_core_count == 2 时只能 40-59；"
+                "missing_core_count == 1 时只能 60-79；"
+                "missing_core_count == 0 且 score >= 80 才允许 success=true。"
+                "只输出以下 JSON 对象："
+                '{"success":false,"score":0,"missing_core_count":0,'
+                '"core_checks":[{"id":1,"passed":false,"reason":"..."}],'
+                '"public_answer":null}'
             ),
         },
         {
@@ -464,21 +590,39 @@ async def judge_guess(surface: str, answer: str, guess: str) -> dict[str, Any]:
             "content": (
                 "请评估下面的玩家汤底猜测。\n"
                 f"汤面：{surface}\n"
-                f"汤底：{answer}\n"
+                f"完整汤底：{answer}\n"
+                f"core_conditions：\n{condition_text or '本题未显式提供通关判定条件，请按完整汤底主干严格判定。'}\n"
                 f"玩家猜测：{guess}"
             ),
         },
     ]
-    text = await _chat_validated(messages, lambda value: _parse_guess_result(value) is not None)
-    if text is None:
-        return {"success": False, "score": 0, "answer": None, "error": SYSTEM_BUSY_NOTICE}
-    return _parse_guess_result(text) or {
+    raw_text = None
+    async with _guess_lock:
+        for _ in range(3):
+            raw_text = await _chat(messages)
+            parsed = _parse_guess_json(raw_text)
+            if parsed is not None:
+                return parsed | {
+                    "raw_response": raw_text,
+                    "request_messages": messages,
+                }
+            logger.warning("judge_guess response failed validation: %r", raw_text[:300])
+    return {
         "success": False,
         "score": 0,
+        "missing_core_count": None,
         "answer": None,
         "error": SYSTEM_BUSY_NOTICE,
+        "raw_response": raw_text,
+        "request_messages": messages,
     }
 
+
+def public_answer_from_full_answer(answer: str) -> str:
+    marker = "【隐藏后台设定】"
+    if marker in answer:
+        return answer.split(marker, 1)[0].strip()
+    return answer.strip()
 
 async def generate_hint(surface: str, answer: str, game_log: list[dict[str, Any]]) -> str | None:
     compact = [

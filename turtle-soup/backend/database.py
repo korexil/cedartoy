@@ -95,6 +95,7 @@ async def _create_localtime_triggers(db: aiosqlite.Connection) -> None:
         "ban_ips": ("id", ("created_at",)),
         "flagged_content": ("id", ("created_at",)),
         "room_presence": (("room_id", "player_id"), ("joined_at", "last_active_at")),
+        "judge_audit_logs": ("id", ("created_at",)),
         "toy_users": ("id", ("created_at", "last_active_at")),
         "user_bindings": ("id", ("created_at",)),
     }
@@ -310,8 +311,25 @@ async def init_db() -> None:
                 last_active_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
                 PRIMARY KEY (room_id, player_id)
             );
+            CREATE TABLE IF NOT EXISTS judge_audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id TEXT REFERENCES rooms(id),
+                player_id INTEGER REFERENCES players(id),
+                game_log_id INTEGER REFERENCES game_logs(id),
+                action TEXT NOT NULL,
+                success INTEGER DEFAULT 0,
+                score INTEGER,
+                missing_core_count INTEGER,
+                request_json TEXT,
+                raw_response TEXT,
+                parsed_json TEXT,
+                error TEXT,
+                created_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
+            );
             CREATE INDEX IF NOT EXISTS idx_room_presence_active
                 ON room_presence(room_id, last_active_at);
+            CREATE INDEX IF NOT EXISTS idx_judge_audit_room
+                ON judge_audit_logs(room_id, created_at);
             """
         )
         for key, value in DEFAULT_SETTINGS.items():

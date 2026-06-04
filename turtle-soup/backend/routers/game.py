@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -29,6 +30,43 @@ async def _room(room_id: str) -> dict:
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
     return room
+
+
+async def _write_judge_audit(
+    *,
+    room_id: str,
+    player_id: int | None,
+    game_log_id: int | None,
+    action: str,
+    result: dict,
+) -> None:
+    request_messages = result.get("request_messages")
+    request_json = None
+    if request_messages is not None:
+        request_json = json.dumps(request_messages, ensure_ascii=False)
+    parsed = result.get("raw_json")
+    parsed_json = json.dumps(parsed, ensure_ascii=False) if parsed is not None else None
+    await execute(
+        """
+        INSERT INTO judge_audit_logs (
+            room_id, player_id, game_log_id, action, success, score,
+            missing_core_count, request_json, raw_response, parsed_json, error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            room_id,
+            player_id,
+            game_log_id,
+            action,
+            1 if result.get("success") else 0,
+            result.get("score"),
+            result.get("missing_core_count"),
+            request_json,
+            result.get("raw_response"),
+            parsed_json,
+            result.get("error"),
+        ),
+    )
 
 
 def _ensure_active(room: dict) -> None:
@@ -270,6 +308,13 @@ async def guess(body: GuessBody, player: dict = Depends(current_player)):
         "INSERT INTO game_logs (room_id, player_id, type, content, judgment) VALUES (?, ?, 'guess', ?, ?)",
         (body.room_id, player["id"], guess_text, "yes" if correct else "no"),
     )
+    await _write_judge_audit(
+        room_id=body.room_id,
+        player_id=player["id"],
+        game_log_id=log_id,
+        action="guess",
+        result=result,
+    )
     payload = await _log_payload(log_id)
     result_content = result.get("error") or f"还原度：{score}%"
     await touch_room(body.room_id, player["id"])
@@ -290,7 +335,7 @@ async def guess(body: GuessBody, player: dict = Depends(current_player)):
             await db.commit()
         finally:
             await db.close()
-        reveal_answer = result.get("answer") or room["answer"]
+        reveal_answer = result.get("answer") or judge.public_answer_from_full_answer(room["answer"])
         reveal_content = f"还原度：{score}%\n{reveal_answer}"
         reveal_id = await execute(
             "INSERT INTO game_logs (room_id, type, content, judgment) VALUES (?, 'system', ?, 'game_over')",
