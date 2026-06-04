@@ -48,13 +48,10 @@ function AutoHintBanner({ log, special = false, accepted, onAccept, onReject }) 
   return (
     <div className="log-hint-banner auto-prompt auto-prompt-pending" role="region" aria-label="提示">
       <div className="log-hint-label">&gt; 【提示】</div>
-      <p className="auto-prompt-blur">{hintText}</p>
-      <div className="auto-prompt-overlay">
-        <span>收到一条提示</span>
-        <div className="auto-prompt-actions">
-          <button type="button" onClick={() => onReject(log.id)}>拒绝</button>
-          <button type="button" className="pixel-primary" onClick={() => onAccept(log.id)}>接受查看</button>
-        </div>
+      <p>收到一条提示，是否查看？</p>
+      <div className="hint-actions">
+        <button type="button" onClick={() => onReject(log.id)}>拒绝</button>
+        <button type="button" className="pixel-primary" onClick={() => onAccept(log.id)}>接受</button>
       </div>
     </div>
   )

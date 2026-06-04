@@ -2292,6 +2292,7 @@ body:has(.room-page) {
 
 .hint-actions button {
   min-height: 36px;
+  min-width: 64px;
   border: 2px solid #514064;
   background: #1f1729;
   color: rgba(255, 255, 255, 0.8);
@@ -2312,56 +2313,6 @@ body:has(.room-page) {
   margin-top: 4px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.45);
-}
-
-.auto-prompt-pending {
-  position: relative;
-  overflow: hidden;
-}
-
-.auto-prompt-blur {
-  filter: blur(6px);
-  user-select: none;
-  pointer-events: none;
-}
-
-.auto-prompt-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  background: rgba(31, 23, 41, 0.72);
-  backdrop-filter: blur(2px);
-}
-
-.auto-prompt-overlay > span {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.auto-prompt-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.auto-prompt-actions button {
-  min-height: 36px;
-  border: 2px solid #514064;
-  background: #1f1729;
-  color: rgba(255, 255, 255, 0.8);
-  padding: 6px 12px;
-  font-size: 15px;
-}
-
-.auto-prompt-actions .pixel-primary {
-  border: 0;
-  color: #fff;
-  background: var(--pixel-pink);
-  border-right: 3px solid var(--pixel-pink-dark);
-  border-bottom: 3px solid var(--pixel-pink-dark);
 }
 
 .log-game-over {
