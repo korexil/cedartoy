@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 import judge
 from auth_utils import current_player
@@ -331,9 +331,10 @@ async def hint_respond(body: HintResponseBody, player: dict = Depends(current_pl
 
 
 @router.post("/generate")
-async def generate(player: dict = Depends(current_player)):
+async def generate(body: dict | None = Body(default=None), player: dict = Depends(current_player)):
     del player
-    return await judge.generate_puzzle()
+    style = str((body or {}).get("style") or "horror")
+    return await judge.generate_puzzle(style)
 
 
 @router.get("/public-settings")

@@ -24,6 +24,20 @@ async def _note_payload(note_id: int) -> dict:
     return note
 
 
+async def _note_log_payload(log_id: int) -> dict:
+    return await fetch_one(
+        """
+        SELECT gl.id, gl.room_id, gl.player_id, gl.type, gl.content, gl.judgment,
+               gl.hint_text, gl.resolved, gl.created_at,
+               p.username, p.is_guest, p.is_ai
+        FROM game_logs gl
+        LEFT JOIN players p ON p.id = gl.player_id
+        WHERE gl.id = ?
+        """,
+        (log_id,),
+    )
+
+
 @router.post("/{room_id}")
 async def add_note(room_id: str, body: NoteBody, player: dict = Depends(current_player)):
     content = clean_content(body.content, 50)
@@ -33,6 +47,11 @@ async def add_note(room_id: str, body: NoteBody, player: dict = Depends(current_
     )
     note = await _note_payload(nid)
     await broadcast(room_id, "new_note", note)
+    log_id = await execute(
+        "INSERT INTO game_logs (room_id, type, content, judgment) VALUES (?, 'system', ?, 'note_notice')",
+        (room_id, "【系统提示】记事本有新记录。"),
+    )
+    await broadcast(room_id, "new_log", await _note_log_payload(log_id))
     return note
 
 

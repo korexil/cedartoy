@@ -233,6 +233,7 @@ async def init_db() -> None:
             CREATE TABLE IF NOT EXISTS rooms (
                 id TEXT PRIMARY KEY,
                 puzzle_id INTEGER REFERENCES puzzles(id),
+                title TEXT DEFAULT '',
                 surface TEXT NOT NULL,
                 answer TEXT NOT NULL,
                 status TEXT DEFAULT 'waiting',
@@ -329,6 +330,8 @@ async def init_db() -> None:
             await db.execute("ALTER TABLE puzzles ADD COLUMN title TEXT DEFAULT ''")
         async with db.execute("PRAGMA table_info(rooms)") as cur:
             room_cols = {row[1] for row in await cur.fetchall()}
+        if "title" not in room_cols:
+            await db.execute("ALTER TABLE rooms ADD COLUMN title TEXT DEFAULT ''")
         if "manual_hint_count" not in room_cols:
             await db.execute("ALTER TABLE rooms ADD COLUMN manual_hint_count INTEGER DEFAULT 0")
         if "last_hint_at_ask_count" not in room_cols:

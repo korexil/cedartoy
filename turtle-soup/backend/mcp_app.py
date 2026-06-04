@@ -37,9 +37,11 @@ class PlayBody(BaseModel):
     room_id: str | None = None
     content: str | None = None
     puzzle_id: int | None = None
+    title: str | None = None
     surface: str | None = None
     answer: str | None = None
     tags: str | None = None
+    style: str | None = None
     note_id: int | None = None
     log_id: int | None = None
     log_limit: int | None = None
@@ -53,7 +55,17 @@ async def play(body: PlayBody):
     if not body.action:
         raise HTTPException(status_code=400, detail="action 必填")
     if body.action == "list_rooms":
-        return await fetch_all("SELECT id, surface, status, created_at FROM rooms WHERE status IN ('waiting','playing') ORDER BY created_at DESC")
+        return await fetch_all(
+            """
+            SELECT r.id,
+                   COALESCE(NULLIF(TRIM(r.title), ''), NULLIF(TRIM(pz.title), ''), '') AS title,
+                   r.surface, r.status, r.created_at
+            FROM rooms r
+            LEFT JOIN puzzles pz ON pz.id = r.puzzle_id
+            WHERE r.status IN ('waiting','playing')
+            ORDER BY r.created_at DESC
+            """
+        )
     if body.action == "list_puzzles":
         return await fetch_all(
             """
@@ -91,12 +103,22 @@ async def play(body: PlayBody):
     if body.action == "join":
         if not body.room_id:
             raise HTTPException(status_code=400, detail="room_id 必填")
-        room = await fetch_one("SELECT id, surface, status, created_at FROM rooms WHERE id = ?", (body.room_id,))
+        room = await fetch_one(
+            """
+            SELECT r.id,
+                   COALESCE(NULLIF(TRIM(r.title), ''), NULLIF(TRIM(pz.title), ''), '') AS title,
+                   r.surface, r.status, r.created_at
+            FROM rooms r
+            LEFT JOIN puzzles pz ON pz.id = r.puzzle_id
+            WHERE r.id = ?
+            """,
+            (body.room_id,),
+        )
         if not room:
             raise HTTPException(status_code=404, detail="房间不存在")
         return room
     if body.action == "generate":
-        return await game_generate()
+        return await game_generate({"style": body.style or "horror"})
     if body.action == "note_list":
         if not body.room_id:
             raise HTTPException(status_code=400, detail="room_id 必填")
@@ -125,11 +147,11 @@ async def play(body: PlayBody):
         if not surface or not answer:
             raise HTTPException(status_code=400, detail="surface 和 answer 必填")
         result = await create_room(
-            RoomCreateBody(mode="custom", surface=surface, answer=answer, tags=tags),
+            RoomCreateBody(mode="custom", title=(body.title or "").strip()[:80], surface=surface, answer=answer, tags=tags),
             player,
         )
         return await fetch_one(
-            "SELECT id, surface, status, created_by, winner_id, created_at, finished_at FROM rooms WHERE id = ?",
+            "SELECT id, title, surface, status, created_by, winner_id, created_at, finished_at FROM rooms WHERE id = ?",
             (result["room_id"],),
         )
     if body.action == "close_room":
@@ -196,7 +218,7 @@ async def _public_room(room_id: str) -> dict:
     room = await fetch_one(
         """
         SELECT r.id, r.surface, r.status, r.winner_id, r.created_at, r.finished_at,
-               COALESCE(NULLIF(TRIM(pz.title), ''), '') AS title,
+               COALESCE(NULLIF(TRIM(r.title), ''), NULLIF(TRIM(pz.title), ''), '') AS title,
                COALESCE(pz.tags, '') AS tags
         FROM rooms r
         LEFT JOIN puzzles pz ON pz.id = r.puzzle_id

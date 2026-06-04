@@ -10,6 +10,16 @@ import PlaceholderModal from '../components/PlaceholderModal.jsx'
 
 const TITLE_MAX = 24
 const TAG_FILTERS = ['红汤', '黑汤', '本格', '变格']
+const AI_STYLE_OPTIONS = [
+  ['', '不指定风格'],
+  ['cozy', '日常温馨风'],
+  ['absurd', '荒诞喜剧风'],
+  ['mystery', '本格推理风'],
+  ['fantasy', '奇幻异世界风'],
+  ['history', '历史民俗风'],
+  ['scifi', '科幻未来风'],
+  ['horror', '黑暗惊悚风'],
+]
 
 function roomTitle(room) {
   const title = (room.title || '').trim()
@@ -56,7 +66,8 @@ export default function Lobby() {
   const [selectedPuzzleId, setSelectedPuzzleId] = useState('')
   const [custom, setCustom] = useState({ surface: '', answer: '' })
   const [generated, setGenerated] = useState(null)
-  const [aiCooldown, setAiCooldown] = useState(0)
+  const [aiStyle, setAiStyle] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
   const [randomCooldown, setRandomCooldown] = useState(0)
   const [cooldownSeconds, setCooldownSeconds] = useState(5)
   const [error, setError] = useState('')
@@ -128,11 +139,6 @@ export default function Lobby() {
     }
   }, [location.state?.tab])
   useEffect(() => {
-    if (aiCooldown <= 0) return
-    const t = setTimeout(() => setAiCooldown(aiCooldown - 1), 1000)
-    return () => clearTimeout(t)
-  }, [aiCooldown])
-  useEffect(() => {
     if (randomCooldown <= 0) return
     const t = setTimeout(() => setRandomCooldown(randomCooldown - 1), 1000)
     return () => clearTimeout(t)
@@ -146,6 +152,10 @@ export default function Lobby() {
   const selectPuzzle = (value) => {
     setSelectedPuzzleId(value)
     setRandom(puzzles.find((puzzle) => String(puzzle.id) === value) || null)
+  }
+  const selectAiStyle = (value) => {
+    setAiStyle(value)
+    setGenerated(null)
   }
   const create = async (body) => {
     if (creating) return
@@ -163,8 +173,16 @@ export default function Lobby() {
   const createBtnClass = `pixel-primary${creating ? ' loading' : ''}`
   const createLabel = creating ? '创建中…' : '创建'
   const generate = async () => {
-    setAiCooldown(cooldownSeconds)
-    setGenerated(await post('/game/generate'))
+    if (aiGenerating) return
+    setAiGenerating(true)
+    setError('')
+    try {
+      setGenerated(await post('/game/generate', { style: aiStyle || undefined }))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setAiGenerating(false)
+    }
   }
   const logout = async () => {
     await logoutToGuest()
@@ -245,13 +263,21 @@ export default function Lobby() {
       )}
       {createTab === 'ai' && (
         <div className="create-body">
+          <label className="terminal-label">风格（可选）
+            <select value={aiStyle} onChange={(event) => selectAiStyle(event.target.value)}>
+              {AI_STYLE_OPTIONS.map(([value, label]) => (
+                <option value={value} key={value}>{label}</option>
+              ))}
+            </select>
+          </label>
           <div className="terminal-preview">
-            <p>&gt; 生成器已就绪</p>
-            <p>{generated?.surface || '生成提示词可在管理界面的运行参数里调整。'}</p>
+            <p>&gt; {aiGenerating ? '生成中...' : '生成器已就绪'}</p>
+            <p>&gt; 题目：<b>{generated?.title || '尚未生成'}</b></p>
+            <p className="type-line">&gt; {generated?.surface || '生成提示词可在管理界面的运行参数里调整。'}</p>
           </div>
           <div className="actions">
-            <button type="button" disabled={aiCooldown > 0} onClick={generate}>{aiCooldown ? `${aiCooldown}s` : '生成'}</button>
-            <button type="button" className={createBtnClass} disabled={!generated || creating} onClick={() => create({ mode: 'generated', ...generated })}>{createLabel}</button>
+            <button type="button" disabled={aiGenerating} onClick={generate}>{aiGenerating ? '生成中…' : '生成'}</button>
+            <button type="button" className={createBtnClass} disabled={!generated || creating || aiGenerating} onClick={() => create({ mode: 'generated', ...generated })}>{createLabel}</button>
           </div>
         </div>
       )}

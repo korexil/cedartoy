@@ -10,6 +10,7 @@ class AuthBody(BaseModel):
 class RoomCreateBody(BaseModel):
     mode: str = "random"
     puzzle_id: int | None = None
+    title: str = Field(default="", max_length=80)
     surface: str | None = Field(default=None, max_length=500)
     answer: str | None = Field(default=None, max_length=1000)
     tags: str = Field(default="", max_length=100)

@@ -21,7 +21,7 @@ async def list_rooms(player: dict = Depends(current_player)):
     rows = await fetch_all(
         """
         SELECT r.id, r.surface, r.status, r.created_by, r.winner_id, r.created_at, r.finished_at,
-               COALESCE(NULLIF(TRIM(pz.title), ''), '') AS title,
+               COALESCE(NULLIF(TRIM(r.title), ''), NULLIF(TRIM(pz.title), ''), '') AS title,
                COALESCE(pz.tags, '') AS tags,
                p.username AS creator_name,
                (SELECT COUNT(*) FROM game_logs gl WHERE gl.room_id = r.id AND gl.type = 'ask') AS ask_count,
@@ -69,8 +69,10 @@ async def create_room(body: RoomCreateBody, player: dict = Depends(current_playe
         if not puzzle:
             raise HTTPException(status_code=404, detail="题目不存在")
         puzzle_id = puzzle["id"]
+        title = puzzle["title"]
         surface, answer = puzzle["surface"], puzzle["answer"]
     else:
+        title = clean_content(body.title or "", 80)
         surface = clean_content(body.surface or "", 500)
         answer = clean_content(body.answer or "", 1000)
         if body.mode == "custom":
@@ -86,8 +88,8 @@ async def create_room(body: RoomCreateBody, player: dict = Depends(current_playe
     while await fetch_one("SELECT id FROM rooms WHERE id = ?", (rid,)):
         rid = room_id()
     await execute(
-        "INSERT INTO rooms (id, puzzle_id, surface, answer, status, created_by) VALUES (?, ?, ?, ?, 'playing', ?)",
-        (rid, puzzle_id, surface, answer, player["id"]),
+        "INSERT INTO rooms (id, puzzle_id, title, surface, answer, status, created_by) VALUES (?, ?, ?, ?, ?, 'playing', ?)",
+        (rid, puzzle_id, title, surface, answer, player["id"]),
     )
     await execute(
         "INSERT INTO game_logs (room_id, player_id, type, content) VALUES (?, ?, 'system', ?)",
@@ -100,8 +102,10 @@ async def create_room(body: RoomCreateBody, player: dict = Depends(current_playe
 async def get_room(room_id: str, player: dict = Depends(current_player)):
     room = await fetch_one(
         """
-        SELECT r.*,
-               COALESCE(NULLIF(TRIM(pz.title), ''), '') AS title,
+        SELECT r.id, r.puzzle_id,
+               COALESCE(NULLIF(TRIM(r.title), ''), NULLIF(TRIM(pz.title), ''), '') AS title,
+               r.surface, r.answer, r.status, r.created_by, r.winner_id,
+               r.manual_hint_count, r.last_hint_at_ask_count, r.created_at, r.finished_at,
                COALESCE(pz.tags, '') AS tags
         FROM rooms r
         LEFT JOIN puzzles pz ON pz.id = r.puzzle_id

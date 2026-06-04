@@ -1291,7 +1291,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
     white-space: nowrap;
   }
   .lobby-status .online-dot { width: 6px; height: 6px; }
-  .lobby-actions a:not(.avatar-pill):not(.admin-nav-link), .lobby-actions button:not(.avatar-pill):not(.soup-logout-link) { display: none; }
+  .lobby-actions a:not(.avatar-pill):not(.admin-nav-link), .lobby-actions button:not(.avatar-pill):not(.soup-logout-link):not(.close-room-btn) { display: none; }
   .lobby-actions .soup-logout-link {
     width: 28px;
     height: 28px;
@@ -1793,6 +1793,10 @@ body:has(.room-page) {
   font-size: 13px;
 }
 
+.close-room-btn-surface {
+  display: none;
+}
+
 .loading-screen {
   display: grid;
   place-items: center;
@@ -2057,6 +2061,12 @@ body:has(.room-page) {
 .session-log-line.system-notice {
   grid-template-columns: 74px minmax(0, 1fr);
   color: rgba(255, 255, 255, 0.72);
+}
+
+.session-log-line.note-notice {
+  grid-template-columns: 74px minmax(0, 1fr);
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 13px;
 }
 
 .session-log-line.system .log-judgment {
@@ -2809,7 +2819,24 @@ body:has(.room-page) {
 
 @media (max-width: 900px) {
   .room-page .lobby-actions .close-room-btn {
+    display: none;
+  }
+  .room-page .close-room-btn-surface {
+    width: 68px;
+    height: 24px;
+    min-width: 68px;
+    min-height: 24px;
+    flex: 0 0 68px;
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 2px solid rgba(255, 255, 255, 0.46);
+    background: rgba(157, 67, 72, 0.42);
+    color: #fff;
+    font-size: 11px;
+    line-height: 1;
+    order: 3;
   }
   .room-main {
     grid-template-columns: 1fr;
@@ -2835,6 +2862,7 @@ body:has(.room-page) {
     align-items: center;
     justify-content: center;
     justify-self: end;
+    order: 4;
     width: 30px;
     min-width: 30px;
     height: 24px;
@@ -2874,7 +2902,7 @@ body:has(.room-page) {
     font-size: 14px;
   }
   .room-surface-panel .terminal-head {
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     gap: 6px;
     padding: 7px 8px;
   }
@@ -2884,7 +2912,7 @@ body:has(.room-page) {
   .surface-head-meta {
     gap: 3px;
     font-size: 9px;
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
   .surface-head-meta span {
     min-height: 18px;
@@ -2937,12 +2965,18 @@ body:has(.room-page) {
     overflow-wrap: anywhere;
   }
   .session-log-line.system .log-text,
-  .session-log-line.system-notice .log-text {
+  .session-log-line.system-notice .log-text,
+  .session-log-line.note-notice .log-text {
     grid-column: 2;
   }
   .session-log-line.system,
-  .session-log-line.system-notice {
+  .session-log-line.system-notice,
+  .session-log-line.note-notice {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+  .session-log-line.note-notice {
+    color: rgba(255, 255, 255, 0.38);
+    font-size: 11px;
   }
   .log-time {
     font-size: 9px;

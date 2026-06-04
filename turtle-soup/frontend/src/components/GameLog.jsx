@@ -173,6 +173,7 @@ export default function GameLog({ logs, onReport, onHintRespond, hintBusy, curre
           return null
         }
         const notice = systemNoticeContent(log.content)
+        const noteNotice = log.judgment === 'note_notice'
         const timeFull = formatDbDateTime(log.created_at)
         const time = compactLogTime ? formatDbLogClock(log.created_at) : formatDbTime(log.created_at)
         const name = log.username || (log.player_id ? `游客${log.player_id}` : '系统')
@@ -188,7 +189,7 @@ export default function GameLog({ logs, onReport, onHintRespond, hintBusy, curre
         const prefix = log.type === 'guess' ? '猜测' : log.type === 'system' ? '系统' : name
         return (
           <div
-            className={`session-log-line ${log.type}${notice ? ' system-notice' : ''}`}
+            className={`session-log-line ${log.type}${notice ? ' system-notice' : ''}${noteNotice ? ' note-notice' : ''}`}
             key={log.id}
             onContextMenu={(event) => {
               event.preventDefault()

@@ -341,6 +341,15 @@ export default function Room() {
               <span>提问 {room.ask_count ?? logs.filter((row) => row.type === 'ask').length}</span>
               <span>在房 {room.active_players || 1}</span>
             </div>
+            {canCloseRoom && (
+              <button
+                type="button"
+                className="close-room-btn close-room-btn-surface"
+                onClick={() => setCloseConfirmOpen(true)}
+              >
+                关闭房间
+              </button>
+            )}
             <button type="button" className="surface-toggle" onClick={() => setSurfaceCollapsed(!surfaceCollapsed)} aria-label={surfaceCollapsed ? '展开汤面' : '收起汤面'}>
               {surfaceCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
             </button>

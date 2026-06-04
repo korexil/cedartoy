@@ -19,6 +19,16 @@ FAIL_LIMIT = 5
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
 logger = logging.getLogger(__name__)
 
+STYLE_DESCRIPTIONS = {
+    "cozy": '主打"情感的错位与反转"。汤面必须看起来像是某种冷漠、奇怪甚至带有恶意的行为，但汤底揭晓时，其实是极致的保护、笨拙的爱意或温柔的成全。出题发力点参考：误解的善意、跨越时间的约定、隐秘的保护、无法开口的道别、用笨拙方式表达的爱。',
+    "absurd": '主打"打破常规预期的思维盲区"。用极其严肃、紧张的语气描述一件小事，最后用一个让人哭笑不得的生活常识或物理逻辑来解构它。出题发力点参考：一本正经的胡说八道、跨频道的沟通、沙雕的巧合、常识被滥用导致的连锁反应、完全对不上的信息差。',
+    "mystery": '主打"纯粹的物理与逻辑诡计"。汤面以紧绷的节奏和层叠疑点营造不可能完成的谜题氛围，汤底用时间差、空间结构、物理现象或精妙的不在场证明来自洽解答，通关感来自逻辑的精准扣合。出题发力点参考：密室手法、时间线错觉、职业特征利用、连续事件中的关键缺口、语义的严格歧义。',
+    "fantasy": '主打"设定先行且自洽"。允许世界设定里有魔法、异能或奇幻种族，但必须在汤面里给出隐晦暗示，且汤底的解谜必须严格遵循这个设定的物理法则，绝不能机械降神。出题发力点参考：副作用的代价、规则的漏洞、非人物种的日常、能力的边界与禁忌、非人类视角对人类行为的误读。',
+    "history": '主打"信息差与时代局限性"。利用现代人的思维定势去审视古代或异国文化中的正常行为。转折必须依托于真实的民俗、冷知识或特定的历史事件。出题发力点参考：被遗忘的旧习俗、时代背景下的无奈、特殊的文化禁忌、名词的古今含义偏移、隐秘职业的操作规范。',
+    "scifi": '主打"近未来与技术的细思极恐"。利用赛博朋克、AI意识、记忆篡改等元素出题。汤面是诡异的日常，汤底揭晓其实是代码故障、缸中之脑或意识上传。出题发力点参考：仿生人的图灵测试、记忆备份的漏洞、虚拟现实的边界、人机融合后的认知错位、技术迭代中被遗忘的旧版本人格。',
+    "horror": '主打"病态、绝望与心理惊悚"。故事的底色应该带有一丝病态、黑色幽默或极其残酷的冷逻辑，探索人性中最黑暗扭曲的一面。出题发力点参考：病态的爱、极限环境求生、身份认知错乱、致命的误会、伪装的善意。',
+}
+
 
 def _file_judge_prompt() -> str:
     path = CONFIG_DIR / "judge_prompt.txt"
@@ -448,10 +458,18 @@ async def generate_hint(surface: str, answer: str, game_log: list[dict[str, Any]
     return text.strip()[len("【提示】") :].strip()[:120]
 
 
-async def generate_puzzle() -> dict[str, str]:
+async def generate_puzzle(style: str = "horror") -> dict[str, str]:
+    prompt = await _get_generate_prompt()
+    style_desc = STYLE_DESCRIPTIONS.get(style, STYLE_DESCRIPTIONS["horror"])
+    prompt = prompt.replace("{style_description}", style_desc)
+    prompt = (
+        f"{prompt}\n\n"
+        "本次返回的 JSON 必须包含 title、surface、answer 三个字段；"
+        "title 是单独题目标题，不是汤面，限 2-12 个中文字符。"
+    )
     text = await _chat(
         [
-            {"role": "system", "content": await _get_generate_prompt()},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": "请按系统提示生成题目，只返回 JSON。"},
         ],
         temperature=0.8,
@@ -460,7 +478,11 @@ async def generate_puzzle() -> dict[str, str]:
         start = text.find("{")
         end = text.rfind("}") + 1
         data = json.loads(text[start:end])
-        return {"surface": str(data["surface"])[:500], "answer": str(data["answer"])[:1000]}
+        return {
+            "title": str(data.get("title") or "")[:80],
+            "surface": str(data["surface"])[:500],
+            "answer": str(data["answer"])[:1000],
+        }
     except Exception:
         raise HTTPException(status_code=502, detail="AI 生成结果格式错误") from None
 
