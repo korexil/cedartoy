@@ -140,16 +140,16 @@ function systemNoticeContent(content) {
   return ''
 }
 
-function loadHintDecisions() {
-  try { return JSON.parse(sessionStorage.getItem('hint_decisions') || '{}') } catch { return {} }
+function loadHintDecisions(roomId) {
+  try { return JSON.parse(localStorage.getItem(`hint_decisions_${roomId}`) || '{}') } catch { return {} }
 }
-function saveHintDecisions(obj) {
-  sessionStorage.setItem('hint_decisions', JSON.stringify(obj))
+function saveHintDecisions(roomId, obj) {
+  localStorage.setItem(`hint_decisions_${roomId}`, JSON.stringify(obj))
 }
 
-export default function GameLog({ logs, onHintRespond, hintBusy, currentPlayerId }) {
+export default function GameLog({ logs, roomId, onHintRespond, hintBusy, currentPlayerId }) {
   const ordered = sortLogs(logs)
-  const [hintDecisions, setHintDecisions] = useState(loadHintDecisions)
+  const [hintDecisions, setHintDecisions] = useState(() => loadHintDecisions(roomId))
   const [compactLogTime, setCompactLogTime] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches,
   )
@@ -193,12 +193,12 @@ export default function GameLog({ logs, onHintRespond, hintBusy, currentPlayerId
               accepted={decision === 'accept'}
               onAccept={(id) => {
                 const next = { ...hintDecisions, [id]: 'accept' }
-                saveHintDecisions(next)
+                saveHintDecisions(roomId, next)
                 setHintDecisions(next)
               }}
               onReject={(id) => {
                 const next = { ...hintDecisions, [id]: 'reject' }
-                saveHintDecisions(next)
+                saveHintDecisions(roomId, next)
                 setHintDecisions(next)
               }}
             />
