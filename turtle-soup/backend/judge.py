@@ -420,7 +420,7 @@ async def judge_ask(surface: str, answer: str, question: str) -> dict[str, str |
 
 
 def _parse_guess_result(text: str) -> dict[str, Any] | None:
-    cleaned = _strip_code_fence(text)
+    cleaned = _strip_silent_audit(_strip_code_fence(text))
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
     if len(lines) < 2 or lines[0] not in {"【通关】", "【未通关】"}:
         return None
@@ -437,6 +437,10 @@ def _parse_guess_result(text: str) -> dict[str, Any] | None:
         "score": int(score_match.group(0)),
         "answer": answer_text,
     }
+
+
+def _strip_silent_audit(text: str) -> str:
+    return re.sub(r"<后台静默核对>.*?</后台静默核对>", "", text, flags=re.S).strip()
 
 
 async def judge_guess(surface: str, answer: str, guess: str) -> dict[str, Any]:
