@@ -83,6 +83,7 @@ export default function Lobby() {
   const [bindOpen, setBindOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [cedartoyMe, setCedartoyMe] = useState(null)
+  const [spoilerConfirm, setSpoilerConfirm] = useState(null)
 
   const load = async () => {
     try {
@@ -192,9 +193,12 @@ export default function Lobby() {
   const activeRooms = rooms.filter((room) => room.status === 'waiting' || room.status === 'playing')
   const online = activeRooms.reduce((sum, room) => sum + Number(room.active_players || 0), 0)
   const displayRooms = [...rooms].sort((a, b) => {
-    const players = Number(b.active_players || 0) - Number(a.active_players || 0)
-    if (players) return players
-    return Number(b.ask_count || 0) - Number(a.ask_count || 0)
+    const tier = (r) => r.status === 'finished' ? 2 : (r.ask_count || 0) === 0 ? 1 : 0
+    const da = tier(a) - tier(b)
+    if (da) return da
+    const ta = a.last_active_at || a.created_at || ''
+    const tb = b.last_active_at || b.created_at || ''
+    return tb.localeCompare(ta)
   })
   const filteredRooms = displayRooms.filter((room) => matchesRoomFilters(room, roomSearch, activeTagFilters))
   const toggleTagFilter = (tag) => {
@@ -336,7 +340,7 @@ export default function Lobby() {
           <div className="rooms-head">
             <h1><span>☷</span>活跃房间</h1>
             <button type="button" className="rooms-refresh" onClick={load} aria-label="刷新"><RefreshCw size={16} /></button>
-            <button type="button" onClick={load}>按热度排序</button>
+            <button type="button" onClick={load}>按活跃排序</button>
           </div>
           <div className="rooms-toolbar">
             <label className="room-search">
@@ -367,7 +371,12 @@ export default function Lobby() {
             {filteredRooms.map((room) => {
               const tags = parseTags(room.tags)
               return (
-                <Link className="pixel-room-card" to={`/room/${room.id}`} key={room.id}>
+                <Link className="pixel-room-card" to={`/room/${room.id}`} key={room.id} onClick={(e) => {
+                  if (room.status === 'finished') {
+                    e.preventDefault()
+                    setSpoilerConfirm(room)
+                  }
+                }}>
                   <div className="room-code">房间 #{room.id}</div>
                   <div className="room-glyph" aria-hidden="true">?</div>
                   <div className="room-copy">
@@ -448,6 +457,22 @@ export default function Lobby() {
         message="游玩历史筹备中，敬请期待。"
         onClose={() => setHistoryOpen(false)}
       />
+      {spoilerConfirm && (
+        <div className="modal-backdrop room-close-backdrop" onClick={() => setSpoilerConfirm(null)}>
+          <div className="modal room-close-modal" role="dialog" aria-modal="true" aria-label="剧透提醒" onClick={(event) => event.stopPropagation()}>
+            <h2>⚠️ 剧透提醒</h2>
+            <p>该房间已结束，进入后可能显示汤底答案，涉及剧透。确认进入？</p>
+            <div className="room-close-actions">
+              <button type="button" onClick={() => setSpoilerConfirm(null)}>取消</button>
+              <button type="button" className="pixel-primary" onClick={() => {
+                const room = spoilerConfirm
+                setSpoilerConfirm(null)
+                nav(`/room/${room.id}`)
+              }}>确认进入</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

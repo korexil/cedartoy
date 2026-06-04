@@ -27,7 +27,9 @@ async def list_rooms(player: dict = Depends(current_player)):
                (SELECT COUNT(*) FROM game_logs gl WHERE gl.room_id = r.id AND gl.type = 'ask') AS ask_count,
                (SELECT COUNT(*) FROM room_presence rp
                 WHERE rp.room_id = r.id
-                  AND rp.last_active_at > datetime('now', 'localtime', '-1 hour')) AS active_players
+                  AND rp.last_active_at > datetime('now', 'localtime', '-1 hour')) AS active_players,
+               (SELECT MAX(rp2.last_active_at) FROM room_presence rp2
+                WHERE rp2.room_id = r.id) AS last_active_at
         FROM rooms r
         LEFT JOIN players p ON p.id = r.created_by
         LEFT JOIN puzzles pz ON pz.id = r.puzzle_id

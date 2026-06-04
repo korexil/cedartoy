@@ -59,7 +59,9 @@ async def play(body: PlayBody):
             """
             SELECT r.id,
                    COALESCE(NULLIF(TRIM(r.title), ''), NULLIF(TRIM(pz.title), ''), '') AS title,
-                   r.surface, r.status, r.created_at
+                   r.surface, r.status, r.created_at,
+                   (SELECT MAX(rp.last_active_at) FROM room_presence rp
+                    WHERE rp.room_id = r.id) AS last_active_at
             FROM rooms r
             LEFT JOIN puzzles pz ON pz.id = r.puzzle_id
             WHERE r.status IN ('waiting','playing')

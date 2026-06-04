@@ -44,6 +44,20 @@ async def _get_judge_prompt() -> str:
     return _file_judge_prompt()
 
 
+async def _get_judge_prompt_hint() -> str:
+    row = await fetch_one("SELECT value FROM settings WHERE key = 'judge_prompt_hint'")
+    if row and str(row.get("value") or "").strip():
+        return str(row["value"])
+    return _file_judge_prompt()
+
+
+async def _get_judge_prompt_guess() -> str:
+    row = await fetch_one("SELECT value FROM settings WHERE key = 'judge_prompt_guess'")
+    if row and str(row.get("value") or "").strip():
+        return str(row["value"])
+    return _file_judge_prompt()
+
+
 async def _get_generate_prompt() -> str:
     row = await fetch_one("SELECT value FROM settings WHERE key = 'generate_prompt'")
     if row and str(row.get("value") or "").strip():
@@ -373,7 +387,7 @@ def _parse_guess_result(text: str) -> dict[str, Any] | None:
 
 async def judge_guess(surface: str, answer: str, guess: str) -> dict[str, Any]:
     messages = [
-        {"role": "system", "content": await _get_judge_prompt()},
+        {"role": "system", "content": await _get_judge_prompt_guess()},
         {
             "role": "system",
             "content": (
@@ -430,7 +444,7 @@ async def generate_hint(surface: str, answer: str, game_log: list[dict[str, Any]
             f"{numbered_list}"
         )
     messages = [
-        {"role": "system", "content": await _get_judge_prompt()},
+        {"role": "system", "content": await _get_judge_prompt_hint()},
         {
             "role": "system",
             "content": hint_system_content,
