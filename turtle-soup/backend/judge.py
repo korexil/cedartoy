@@ -332,16 +332,34 @@ def _extract_clue_from_ask(text: str) -> str | None:
     return None
 
 
-def _extract_clue_from_answer(answer: str) -> str | None:
-    marker_index = answer.find(_CLUE_PREFIX)
-    if marker_index < 0:
+def _extract_clue_from_answer(answer: str, triggered_clue: str | None = None) -> str | None:
+    segments: list[str] = []
+    search_start = 0
+    while True:
+        marker_index = answer.find(_CLUE_PREFIX, search_start)
+        if marker_index < 0:
+            break
+        clue_start = marker_index + len(_CLUE_PREFIX)
+        suffix_index = answer.find(_CLUE_SUFFIX, clue_start)
+        if suffix_index >= 0:
+            content = answer[clue_start:suffix_index].strip()
+            search_start = suffix_index + len(_CLUE_SUFFIX)
+        else:
+            content = _extract_legacy_clue_segment(answer[clue_start:])
+            search_start = clue_start + len(content)
+        if content:
+            segments.append(content)
+    if not segments:
         return None
-    clue_start = marker_index + len(_CLUE_PREFIX)
-    suffix_index = answer.find(_CLUE_SUFFIX, clue_start)
-    if suffix_index >= 0:
-        content = answer[clue_start:suffix_index].strip()
-        return content or None
-    clue_text = answer[clue_start:]
+    clue = (triggered_clue or "").strip()
+    if clue:
+        for segment in segments:
+            if clue in segment or segment in clue:
+                return segment
+    return segments[0]
+
+
+def _extract_legacy_clue_segment(clue_text: str) -> str:
     clue_lines: list[str] = []
     for line in clue_text.splitlines():
         stripped = line.strip()
@@ -352,8 +370,7 @@ def _extract_clue_from_answer(answer: str) -> str | None:
         if stripped.startswith("【"):
             break
         clue_lines.append(stripped)
-    content = "\n".join(clue_lines).strip()
-    return content or None
+    return "\n".join(clue_lines).strip()
 
 
 async def judge_ask(surface: str, answer: str, question: str) -> dict[str, str | None]:
@@ -395,7 +412,7 @@ async def judge_ask(surface: str, answer: str, question: str) -> dict[str, str |
     if not has_clue:
         clue = None
     elif clue is not None:
-        clue = _extract_clue_from_answer(answer) or clue
+        clue = _extract_clue_from_answer(answer, clue) or clue
     return {
         "judgment": _ASK_MAPPING[first_line],
         "clue": clue,

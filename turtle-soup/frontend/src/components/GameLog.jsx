@@ -3,34 +3,14 @@ import { Bot } from 'lucide-react'
 import JudgeBadge from './JudgeBadge.jsx'
 import { formatDbDateTime, formatDbLogClock, formatDbTime } from '../utils/display.js'
 
-function isResolved(log) {
-  return Number(log.resolved) === 1
-}
-
-function HintBanner({ log, onRespond, busy, currentPlayerId }) {
-  const resolved = isResolved(log)
-  const accepted = log.hint_accepted
+function HintBanner({ log }) {
   const hintText = log.hint_text || ''
-  const isMine = Number(log.player_id) === Number(currentPlayerId)
   const requester = log.username || (log.player_id ? `游客${log.player_id}` : '')
-  let body = isMine ? '系统提供了一条线索，是否接受查看？' : `${requester || '玩家'}请求了一条提示，等待处理。`
-  if (resolved && accepted === false) {
-    body = '已拒绝该提示'
-  } else if (resolved && accepted && hintText) {
-    body = hintText
-  }
 
   return (
-    <div className={`log-hint-banner hint-offer${resolved ? ' readonly' : ''}`} role="region" aria-label="请求提示">
+    <div className="log-hint-banner hint-offer readonly" role="region" aria-label="请求提示">
       <div className="log-hint-label">&gt; 【请求提示】</div>
-      <p>{body}</p>
-      {!resolved && isMine && (
-        <div className="hint-actions">
-          <button type="button" disabled={busy} onClick={() => onRespond(log.id, false)}>拒绝</button>
-          <button type="button" className="pixel-primary" disabled={busy} onClick={() => onRespond(log.id, true)}>接受</button>
-        </div>
-      )}
-      {resolved && <span className="hint-resolved-tag">已处理</span>}
+      <p>{hintText || `${requester || '玩家'}请求了一条提示`}</p>
     </div>
   )
 }
@@ -147,7 +127,7 @@ function saveHintDecisions(roomId, obj) {
   localStorage.setItem(`hint_decisions_${roomId}`, JSON.stringify(obj))
 }
 
-export default function GameLog({ logs, roomId, roomStatus, onHintRespond, hintBusy, currentPlayerId }) {
+export default function GameLog({ logs, roomId, roomStatus }) {
   const ordered = sortLogs(logs)
   const [hintDecisions, setHintDecisions] = useState(() => loadHintDecisions(roomId))
   useEffect(() => {
@@ -195,9 +175,6 @@ export default function GameLog({ logs, roomId, roomStatus, onHintRespond, hintB
             <HintBanner
               key={`hint-${log.id}`}
               log={log}
-              busy={hintBusy}
-              onRespond={onHintRespond}
-              currentPlayerId={currentPlayerId}
             />
           )
         }

@@ -117,7 +117,7 @@ async def _offer_hint(room: dict, ask_count: int, *, manual: bool = False, playe
             return None
         if manual:
             hint_id = await execute(
-                "INSERT INTO game_logs (room_id, player_id, type, content, hint_text) VALUES (?, ?, 'hint_offer', ?, ?)",
+                "INSERT INTO game_logs (room_id, player_id, type, content, hint_text, resolved) VALUES (?, ?, 'hint_offer', ?, ?, 1)",
                 (room["id"], player_id, f"hint:{ask_count}", hint),
             )
             await execute(
@@ -131,6 +131,7 @@ async def _offer_hint(room: dict, ask_count: int, *, manual: bool = False, playe
                 "username": player.get("username") if player else None,
                 "is_guest": player.get("is_guest") if player else None,
                 "is_ai": player.get("is_ai") if player else None,
+                "resolved": 1,
                 "manual_hint_remaining": 3 - manual_count - 1,
             }
             await broadcast(room["id"], "hint_offer", payload)
