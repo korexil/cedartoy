@@ -39,7 +39,7 @@ async def list_rooms(player: dict = Depends(current_player)):
              AND r.finished_at IS NOT NULL
              AND r.finished_at >= datetime('now', 'localtime', ?)
            )
-        ORDER BY CASE r.status WHEN 'playing' THEN 0 WHEN 'waiting' THEN 1 ELSE 2 END, r.created_at DESC
+        ORDER BY CASE r.status WHEN 'finished' THEN 2 ELSE 0 END, COALESCE((SELECT MAX(rp2.last_active_at) FROM room_presence rp2 WHERE rp2.room_id = r.id), r.created_at) DESC
         LIMIT 50
         """,
         (f"-{finished_retention_hours} hours",),
