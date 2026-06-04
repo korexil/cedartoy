@@ -13,3 +13,4 @@ variant-export*.html
 toy_index.html
 
 example/*
+*.db-journal
