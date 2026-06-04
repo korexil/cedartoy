@@ -433,7 +433,7 @@ async def generate_hint(surface: str, answer: str, game_log: list[dict[str, Any]
         "本次请求类型是用户申请提示。不要执行线索汤专用特殊规则，"
         "不要输出【线索公布】，不要泄露完整汤底。"
         "只给一个基于汤面、汤底和已问记录的温和提示。"
-        "必须以【提示】开头，总字数不超过 120 字。"
+        "必须以【提示】开头，总字数不超过 20 字，必须是无标点的一句话。"
     )
     if previous_hints:
         numbered_list = "\n".join(
