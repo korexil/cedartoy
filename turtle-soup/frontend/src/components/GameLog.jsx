@@ -147,9 +147,14 @@ function saveHintDecisions(roomId, obj) {
   localStorage.setItem(`hint_decisions_${roomId}`, JSON.stringify(obj))
 }
 
-export default function GameLog({ logs, roomId, onHintRespond, hintBusy, currentPlayerId }) {
+export default function GameLog({ logs, roomId, roomStatus, onHintRespond, hintBusy, currentPlayerId }) {
   const ordered = sortLogs(logs)
   const [hintDecisions, setHintDecisions] = useState(() => loadHintDecisions(roomId))
+  useEffect(() => {
+    if (roomStatus === 'finished') {
+      localStorage.removeItem(`hint_decisions_${roomId}`)
+    }
+  }, [roomStatus, roomId])
   const [compactLogTime, setCompactLogTime] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches,
   )

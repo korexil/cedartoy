@@ -369,6 +369,7 @@ export default function Room() {
               <GameLog
                 logs={displayLogs}
                 roomId={roomId}
+                roomStatus={room?.status}
                 onHintRespond={respondHint}
                 hintBusy={hintBusy}
                 currentPlayerId={me?.id}
