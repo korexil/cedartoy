@@ -75,6 +75,22 @@ async def _manual_hint_count(room_id: str, player_id: int) -> int:
     return int(row["c"] if row else 0)
 
 
+async def _published_clue_for_player(room_id: str, player_id: int, clue: str) -> bool:
+    row = await fetch_one(
+        """
+        SELECT id FROM game_logs
+        WHERE room_id = ?
+          AND player_id = ?
+          AND type = 'auto_hint'
+          AND judgment = 'auto_hint'
+          AND hint_text = ?
+        LIMIT 1
+        """,
+        (room_id, player_id, clue),
+    )
+    return row is not None
+
+
 async def _system_notice(room_id: str, player_id: int | None = None) -> dict:
     log_id = await execute(
         "INSERT INTO game_logs (room_id, type, content) VALUES (?, 'system', ?)",
@@ -218,10 +234,10 @@ async def _ask_impl(body: ContentBody, player: dict) -> tuple[dict, asyncio.Task
     await touch_room(body.room_id, player["id"])
     await broadcast(body.room_id, "new_log", payload)
     clue = result.get("clue")
-    if clue is not None:
+    if clue is not None and not await _published_clue_for_player(body.room_id, player["id"], clue):
         clue_id = await execute(
-            "INSERT INTO game_logs (room_id, type, content, hint_text, judgment) VALUES (?, 'auto_hint', ?, ?, 'auto_hint')",
-            (body.room_id, clue, clue),
+            "INSERT INTO game_logs (room_id, player_id, type, content, hint_text, judgment) VALUES (?, ?, 'auto_hint', ?, ?, 'auto_hint')",
+            (body.room_id, player["id"], clue, clue),
         )
         clue_payload = await _log_payload(clue_id)
         await broadcast(body.room_id, "new_log", clue_payload)
