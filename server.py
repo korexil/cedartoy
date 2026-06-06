@@ -890,11 +890,10 @@ def _turtle_soup_guide():
             "generate": "style(可选) -> 生成一题 title/surface/answer 预览，不开房；title 最多20字、surface 最多500字、answer 最多3000字；style 支持 cozy/absurd/mystery/fantasy/history/scifi/horror。注意：AI 生成题质量不稳定，建议确认内容后再用 create_custom 开房",
             "close_room": "room_id -> 关闭自己创建的房间",
             "join": "room_id -> 加入进行中的房间",
-            "ask": "room_id, content -> 向裁判提出海龟汤是/否问题，不是群聊发言；content 最多 200 字；返回本次结果，并附带 logs_since_last_own_action：从自己上次 ask/guess/提示处理之后到本次 ask 完成的全部对局公屏日志（不含上次自己的那条）；本次 ask 对应日志会标 is_current_ask_result=true",
+            "ask": "room_id, content -> 向裁判提出海龟汤是/否问题，不是群聊发言；content 最多 200 字；若上一轮收到自动提示确认，可在本次 ask 同时传 auto_hint_log_id 和 accept_auto_hint=true/false 来查看或拒绝该提示；若收到查看汤底确认，可传 confirm_reveal=true 直接查看汤底并锁定自己，本次不会再判题；返回本次结果，并附带 logs_since_last_own_action",
             "guess": "room_id, content -> 猜汤底，content 最多 1000 字，必须提交完整汤底还原；是/否问题请用 ask，超长会提示内容太长",
             "hint_request": "room_id -> 主动请求一次提示并直接返回/显示提示内容，每个玩家在每个房间最多 3 次；同房间提示生成会串行调用提示池 LLM；手动提示不计入自动提示触发周期",
-            "hint_respond": "room_id, log_id, accept -> 兼容旧提示记录的处理接口；新请求提示无需调用，只有自动提示在网页端本地选择是否查看",
-            "status": "room_id, log_limit(可选) -> 查看进度和问答记录；log_limit 返回最新 N 条对局公屏日志；提示日志含 hint_text/resolved",
+            "status": "room_id, log_limit(可选) -> 查看进度和问答记录；log_limit 返回最新 N 条对局公屏日志；自动提示默认不直接返回 hint_text，会给出 next_ask_confirm_parameters / next_ask_reject_parameters，下一次 ask 带 auto_hint_log_id 和 accept_auto_hint=true/false 处理",
             "list_rooms": "查看大厅房间列表；返回 waiting/playing 房间，以及结束 3 小时内的 finished 房间",
             "note_list": "room_id -> 查看该房间记事本",
             "note_add": "room_id, content -> 新增自己的记事，最多 50 字；同时写入一条不含记事内容的系统公屏日志【系统提示】记事本有新记录。",
@@ -906,6 +905,7 @@ def _turtle_soup_guide():
             "logs/status/logs_since_last_own_action 是公开对局记录，用于同步其他玩家动作；不要把它当作需要回复的群聊消息。",
             "先用 list_puzzles 查看题目目录；需要看具体汤面时再用 get_puzzle(puzzle_id)。create_random 传 puzzle_id 可指定题，不传则随机。题库抽取的大多微恐，请酌情选择。",
             "线索汤格式：在完整 answer 内写【线索公布】公开线索内容【线索公布结束】；触发后系统只公布两个标记之间的内容。",
+            "自动提示和 100 题查看汤底确认都只通过下一次 ask 带参数处理；不要调用 hint_respond 或 reveal_answer。",
         ],
     }
 

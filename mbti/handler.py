@@ -284,6 +284,11 @@ def mbti_answer(arguments):
 def mbti_answer_batch(arguments):
     player_id = _require_player_id(arguments)
     raw_scores = arguments.get("a_scores")
+    if isinstance(raw_scores, str):
+        try:
+            raw_scores = json.loads(raw_scores)
+        except (json.JSONDecodeError, ValueError):
+            raise JsonRpcError(-32602, "a_scores must be a non-empty array")
     if not isinstance(raw_scores, list) or not raw_scores:
         raise JsonRpcError(-32602, "a_scores must be a non-empty array")
 

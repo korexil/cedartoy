@@ -12,6 +12,7 @@ DB_PATH = Path(os.getenv("TURTLE_SOUP_DB", BASE_DIR / "turtle_soup.db"))
 DEFAULT_SETTINGS = {
     "max_rooms": "5",
     "hint_trigger_count": "30",
+    "answer_reveal_prompt_count": "100",
     "ai_cooldown_questions": "5",
     "ai_cooldown_seconds": "3",
     "generate_cooldown_seconds": "5",
@@ -265,6 +266,19 @@ async def init_db() -> None:
                 content TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
                 updated_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
+            );
+            CREATE TABLE IF NOT EXISTS room_answer_reveals (
+                room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+                player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+                PRIMARY KEY (room_id, player_id)
+            );
+            CREATE TABLE IF NOT EXISTS room_hint_views (
+                log_id INTEGER NOT NULL REFERENCES game_logs(id) ON DELETE CASCADE,
+                player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                accepted INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+                PRIMARY KEY (log_id, player_id)
             );
             CREATE TABLE IF NOT EXISTS judge_api_configs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

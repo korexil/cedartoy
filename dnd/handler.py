@@ -230,6 +230,11 @@ def dnd_answer(arguments):
 def dnd_answer_batch(arguments):
     player_id = _require_player_id(arguments)
     raw_answers = arguments.get("answers")
+    if isinstance(raw_answers, str):
+        try:
+            raw_answers = json.loads(raw_answers)
+        except (json.JSONDecodeError, ValueError):
+            raise JsonRpcError(-32602, "answers must be a non-empty array")
     if not isinstance(raw_answers, list) or not raw_answers:
         raise JsonRpcError(-32602, "answers must be a non-empty array")
     answers_batch = [

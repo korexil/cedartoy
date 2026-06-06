@@ -139,20 +139,7 @@ async def scan_recent_content() -> None:
                     "INSERT INTO flagged_content (type, ref_id, reason) VALUES ('username', ?, ?)",
                     (row["id"], reason),
                 )
-        submissions = await fetch_all(
-            """
-            SELECT id, surface, answer FROM puzzle_submissions
-            WHERE status = 'pending'
-              AND id NOT IN (SELECT ref_id FROM flagged_content WHERE type = 'submission')
-            """
-        )
-        for row in submissions:
-            reason = await scan_text(f"{row['surface']}\n{row['answer']}")
-            if reason:
-                await execute(
-                    "INSERT INTO flagged_content (type, ref_id, reason) VALUES ('submission', ?, ?)",
-                    (row["id"], reason),
-                )
+        # 投稿不自动扫描，由管理员直接审核
     except Exception as exc:
         logger.warning("AI 内容扫描失败: %s", exc)
 

@@ -227,19 +227,19 @@ export default function Lobby() {
           <label className="terminal-label">选题
             <select value={selectedPuzzleId} onChange={(event) => selectPuzzle(event.target.value)}>
               <option value="">经典推理题库（可选）</option>
-              {puzzles.map((puzzle) => (
+              {puzzles.map((puzzle, i) => (
                 <option value={String(puzzle.id)} key={puzzle.id}>
-                  #{puzzle.id} {puzzle.title || puzzle.surface.slice(0, 24)}
+                  #{i + 1} {puzzle.title || puzzle.surface.slice(0, 10)}
                 </option>
               ))}
             </select>
           </label>
           <p className="terminal-note">题库抽取的大多微恐，请酌情选择。</p>
           <div className="terminal-preview" aria-live="polite">
-            <p>&gt; 正在等待选题...</p>
+            {!random && <p>&gt; 正在等待选题...</p>}
             <p>&gt; 当前题目：<b>{random?.title || '尚未抽取'}</b></p>
-            <p>&gt; 点击标题选择题目。</p>
-            <p className="type-line">&gt; {random?.surface || '或点击“随机抽题”抽取一碗未解之汤。'}</p>
+            {!random && <p>&gt; 点击标题选择题目。</p>}
+            <p className="type-line">&gt; {random?.surface || '或点击"随机抽题"抽取一碗未解之汤。'}</p>
           </div>
           <div className="actions">
             <button type="button" disabled={randomCooldown > 0} onClick={roll}>{randomCooldown ? `${randomCooldown}s` : '随机抽题'}</button>

@@ -59,6 +59,10 @@ export default function Room() {
   const [closeLoading, setCloseLoading] = useState(false)
   const [surfaceCollapsed, setSurfaceCollapsed] = useState(false)
   const [hintConfirmOpen, setHintConfirmOpen] = useState(false)
+  const [revealConfirmOpen, setRevealConfirmOpen] = useState(false)
+  const [revealFinalConfirmOpen, setRevealFinalConfirmOpen] = useState(false)
+  const [revealLoading, setRevealLoading] = useState(false)
+  const [answerRevealPromptCount, setAnswerRevealPromptCount] = useState(100)
   const [mineOpen, setMineOpen] = useState(false)
   const [bindOpen, setBindOpen] = useState(false)
   const [cedartoyMe, setCedartoyMe] = useState(null)
@@ -108,6 +112,12 @@ export default function Room() {
 
   useEffect(() => {
     load().catch((err) => alert(err.message || '加载房间失败'))
+    api('/game/public-settings')
+      .then((settings) => {
+        const count = Number(settings.answer_reveal_prompt_count || 100)
+        setAnswerRevealPromptCount(count > 0 ? count : 100)
+      })
+      .catch(() => {})
   }, [roomId])
 
   useEffect(() => {
@@ -153,11 +163,13 @@ export default function Room() {
       es.addEventListener('game_over', (event) => {
         const data = JSON.parse(event.data)
         setRoom((current) => ({ ...current, status: 'finished', answer: data.answer }))
+        setRevealConfirmOpen(false)
+        setRevealFinalConfirmOpen(false)
       })
       es.addEventListener('new_note', (event) => {
         const data = JSON.parse(event.data)
         setNotes((items) => (
-          items.some((note) => Number(note.id) === Number(data.id)) ? items : [data, ...items]
+          items.some((note) => Number(note.id) === Number(data.id)) ? items : [...items, data]
         ))
       })
       es.addEventListener('update_note', (event) => {
@@ -189,10 +201,22 @@ export default function Room() {
   const manualUsed = Number(room?.manual_hint_count || 0)
   const hintRemaining = Math.max(0, 3 - manualUsed)
   const finished = room?.status === 'finished'
-  const hintDisabled = finished || hintRemaining <= 0 || pendingHint || hintLoading
+  const answerRevealed = Boolean(room?.answer_revealed)
+  const actionLocked = finished || answerRevealed
+  const hintDisabled = actionLocked || hintRemaining <= 0 || pendingHint || hintLoading
+  const askCount = Math.max(Number(room?.ask_count || 0), logs.filter((row) => row.type === 'ask').length)
+  const revealPromptKey = `answer_reveal_prompt_${roomId}_${askCount}`
+
+  useEffect(() => {
+    if (!room || actionLocked || answerRevealPromptCount <= 0 || askCount <= 0) return
+    if (askCount % answerRevealPromptCount !== 0) return
+    if (localStorage.getItem(revealPromptKey)) return
+    localStorage.setItem(revealPromptKey, '1')
+    setRevealConfirmOpen(true)
+  }, [room, actionLocked, askCount, answerRevealPromptCount, revealPromptKey])
 
   const send = async () => {
-    if (!content.trim() || finished || sendLoading) return
+    if (!content.trim() || actionLocked || sendLoading) return
     const kind = inputMode === 'guess' ? 'guess' : 'ask'
     followLogRef.current = true
     setSendLoading(true)
@@ -279,6 +303,26 @@ export default function Room() {
     }
   }
 
+  const revealAnswer = async () => {
+    if (actionLocked || revealLoading) return
+    setRevealLoading(true)
+    try {
+      const entry = await post('/game/reveal-answer', { room_id: roomId, confirm_reveal: true })
+      setRoom((current) => ({
+        ...current,
+        answer_revealed: true,
+        revealed_answer: entry.answer,
+      }))
+      setContent('')
+      setRevealConfirmOpen(false)
+      setRevealFinalConfirmOpen(false)
+    } catch (err) {
+      alert(err.message || '公布汤底失败')
+    } finally {
+      setRevealLoading(false)
+    }
+  }
+
   if (!room) {
     return <div className="room-page loading-screen">加载中…</div>
   }
@@ -327,7 +371,7 @@ export default function Room() {
             <strong>汤面</strong>
             <div className="surface-head-meta" aria-label="房间状态">
               <span className={`surface-state ${finished ? 'pale' : 'playing'}`}>{finished ? '已结束' : '进行中'}</span>
-              <span>提问 {room.ask_count ?? logs.filter((row) => row.type === 'ask').length}</span>
+              <span>提问 {askCount}</span>
               <span>在房 {room.active_players || 1}</span>
             </div>
             {canCloseRoom && (
@@ -346,6 +390,12 @@ export default function Room() {
           <div className="room-surface-scroll">
             <h1>{soupName(room)}</h1>
             <p>{room.surface}</p>
+            {answerRevealed && (
+              <div className="log-game-over private-answer-reveal" role="region" aria-label="已公布汤底">
+                <div className="log-game-over-label">&gt; 已查看汤底</div>
+                <p>{room.revealed_answer || room.answer}</p>
+              </div>
+            )}
             <div className="room-meta">
               {tags.map((tag) => <span className="soup-badge" key={tag}>{tag}</span>)}
             </div>
@@ -383,7 +433,7 @@ export default function Room() {
                 <button
                   type="button"
                   className={inputMode === 'ask' ? 'active' : ''}
-                  disabled={finished}
+                  disabled={actionLocked}
                   onClick={() => setInputMode('ask')}
                 >
                   提问
@@ -391,7 +441,7 @@ export default function Room() {
                 <button
                   type="button"
                   className={inputMode === 'guess' ? 'active' : ''}
-                  disabled={finished}
+                  disabled={actionLocked}
                   onClick={() => setInputMode('guess')}
                 >
                   猜测汤底
@@ -411,7 +461,7 @@ export default function Room() {
               <textarea
                 maxLength={200}
                 value={content}
-                disabled={finished}
+                disabled={actionLocked}
                 onChange={(event) => setContent(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey) {
@@ -425,13 +475,14 @@ export default function Room() {
               <button
                 type="button"
                 className="pixel-primary send-btn"
-                disabled={finished || !content.trim() || sendLoading}
+                disabled={actionLocked || !content.trim() || sendLoading}
                 onClick={send}
               >
                 {sendLoading ? '发送中…' : '发送'}
               </button>
             </div>
             {finished && <p className="composer-finished-hint">游戏已结束</p>}
+            {!finished && answerRevealed && <p className="composer-finished-hint">你已查看汤底，不能继续答题或操作记事板</p>}
           </section>
         </section>
       </div>
@@ -458,9 +509,68 @@ export default function Room() {
           aria-label="记事板"
           onClick={(event) => event.stopPropagation()}
         >
-          <NoteBoard roomId={roomId} notes={notes} setNotes={setNotes} currentPlayer={me} />
+          <NoteBoard
+            roomId={roomId}
+            notes={notes}
+            setNotes={setNotes}
+            currentPlayer={me}
+            disabled={actionLocked}
+            disabledLabel={answerRevealed ? '你已查看汤底' : '游戏已结束'}
+          />
         </div>
       </div>
+
+      {revealConfirmOpen && !revealFinalConfirmOpen && (
+        <div className="modal-backdrop room-close-backdrop" onClick={() => setRevealConfirmOpen(false)}>
+          <div
+            className="modal room-close-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="公布汤底确认"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2>公布汤底？</h2>
+            <p>
+              本房间已经累计 {askCount} 次提问。你可以查看汤底，但查看后本局会对你锁定，
+              你将不能继续提问、猜测或操作记事板。
+            </p>
+            <div className="room-close-actions">
+              <button type="button" disabled={revealLoading} onClick={() => setRevealConfirmOpen(false)}>
+                继续推理
+              </button>
+              <button type="button" className="pixel-primary" disabled={revealLoading} onClick={() => setRevealFinalConfirmOpen(true)}>
+                公布汤底
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {revealFinalConfirmOpen && (
+        <div className="modal-backdrop room-close-backdrop" onClick={() => setRevealFinalConfirmOpen(false)}>
+          <div
+            className="modal room-close-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="最终公布汤底确认"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2>确定公布？</h2>
+            <p>
+              确认后你会立即看到完整汤底。房间不会结束，其他玩家可以继续推理；
+              但你不能再参与本局答题，也不能再新增、修改或删除记事板内容。这个操作不能撤回。
+            </p>
+            <div className="room-close-actions">
+              <button type="button" disabled={revealLoading} onClick={() => setRevealFinalConfirmOpen(false)}>
+                返回
+              </button>
+              <button type="button" className="pixel-primary" disabled={revealLoading} onClick={revealAnswer}>
+                {revealLoading ? '公布中…' : '确认公布'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {hintConfirmOpen && (
         <div className="modal-backdrop room-close-backdrop" onClick={() => setHintConfirmOpen(false)}>

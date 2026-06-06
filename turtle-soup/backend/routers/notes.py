@@ -4,9 +4,19 @@ from auth_utils import current_player
 from database import execute, fetch_one
 from models import NoteBody
 from sse import broadcast
-from utils import SQL_NOW, clean_content
+from utils import ROOM_FINISHED_STATUS_HINT, SQL_NOW, clean_content
 
 router = APIRouter(prefix="/notes", tags=["notes"])
+ANSWER_REVEALED_NOTE_HINT = "你已经公布并查看过本局汤底，不能继续操作记事板。"
+
+
+async def _ensure_player_can_note(room_id: str, player_id: int) -> None:
+    row = await fetch_one(
+        "SELECT 1 FROM room_answer_reveals WHERE room_id = ? AND player_id = ?",
+        (room_id, player_id),
+    )
+    if row is not None:
+        raise HTTPException(status_code=400, detail=ANSWER_REVEALED_NOTE_HINT)
 
 
 async def _note_payload(note_id: int) -> dict:
@@ -40,6 +50,12 @@ async def _note_log_payload(log_id: int) -> dict:
 
 @router.post("/{room_id}")
 async def add_note(room_id: str, body: NoteBody, player: dict = Depends(current_player)):
+    room = await fetch_one("SELECT status FROM rooms WHERE id = ?", (room_id,))
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    if room["status"] == "finished":
+        raise HTTPException(status_code=400, detail=ROOM_FINISHED_STATUS_HINT)
+    await _ensure_player_can_note(room_id, player["id"])
     content = clean_content(body.content, 50)
     nid = await execute(
         "INSERT INTO room_notes (room_id, player_id, content) VALUES (?, ?, ?)",
@@ -62,6 +78,10 @@ async def update_note(note_id: int, body: NoteBody, player: dict = Depends(curre
         raise HTTPException(status_code=404, detail="记事不存在")
     if note["player_id"] != player["id"]:
         raise HTTPException(status_code=403, detail="只能修改自己的记事")
+    room = await fetch_one("SELECT status FROM rooms WHERE id = ?", (note["room_id"],))
+    if room and room["status"] == "finished":
+        raise HTTPException(status_code=400, detail=ROOM_FINISHED_STATUS_HINT)
+    await _ensure_player_can_note(note["room_id"], player["id"])
     content = clean_content(body.content, 50)
     await execute(
         f"UPDATE room_notes SET content = ?, updated_at = {SQL_NOW} WHERE id = ?",
@@ -79,6 +99,10 @@ async def delete_note(note_id: int, player: dict = Depends(current_player)):
         raise HTTPException(status_code=404, detail="记事不存在")
     if note["player_id"] != player["id"]:
         raise HTTPException(status_code=403, detail="只能删除自己的记事")
+    room = await fetch_one("SELECT status FROM rooms WHERE id = ?", (note["room_id"],))
+    if room and room["status"] == "finished":
+        raise HTTPException(status_code=400, detail=ROOM_FINISHED_STATUS_HINT)
+    await _ensure_player_can_note(note["room_id"], player["id"])
     await execute("DELETE FROM room_notes WHERE id = ?", (note_id,))
     await broadcast(note["room_id"], "delete_note", {"id": note_id})
     return {"ok": True}

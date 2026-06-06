@@ -7,7 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 import judge
 from auth_utils import current_player
 from database import execute, fetch_all, fetch_one, get_db, get_setting
-from models import ContentBody, GuessBody, HintRequestBody, HintResponseBody
+from models import ContentBody, GuessBody, HintRequestBody, HintResponseBody, RevealAnswerBody
 from presence import touch_room
 from sse import broadcast
 from utils import ROOM_FINISHED_STATUS_HINT, SQL_NOW, clean_content
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/game", tags=["game"])
 logger = logging.getLogger(__name__)
 _hint_locks: dict[str, asyncio.Lock] = {}
 _ask_locks: dict[str, asyncio.Lock] = {}
+ANSWER_REVEALED_STATUS_HINT = "你已经公布并查看过本局汤底，不能继续提问、猜测或请求提示。"
 
 
 def _hint_lock(room_id: str) -> asyncio.Lock:
@@ -35,7 +36,17 @@ def _ask_lock(room_id: str) -> asyncio.Lock:
 
 
 async def _room(room_id: str) -> dict:
-    room = await fetch_one("SELECT * FROM rooms WHERE id = ?", (room_id,))
+    room = await fetch_one(
+        """
+        SELECT r.*,
+               COALESCE(pz.surface, r.surface) AS surface,
+               COALESCE(pz.answer, r.answer)   AS answer
+        FROM rooms r
+        LEFT JOIN puzzles pz ON pz.id = r.puzzle_id
+        WHERE r.id = ?
+        """,
+        (room_id,),
+    )
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
     return room
@@ -81,6 +92,19 @@ async def _write_judge_audit(
 def _ensure_active(room: dict) -> None:
     if room["status"] == "finished":
         raise HTTPException(status_code=400, detail=ROOM_FINISHED_STATUS_HINT)
+
+
+async def _player_revealed_answer(room_id: str, player_id: int) -> bool:
+    row = await fetch_one(
+        "SELECT 1 FROM room_answer_reveals WHERE room_id = ? AND player_id = ?",
+        (room_id, player_id),
+    )
+    return row is not None
+
+
+async def _ensure_player_can_play(room_id: str, player: dict) -> None:
+    if await _player_revealed_answer(room_id, int(player["id"])):
+        raise HTTPException(status_code=400, detail=ANSWER_REVEALED_STATUS_HINT)
 
 
 async def _log_payload(log_id: int) -> dict:
@@ -249,6 +273,7 @@ async def _ask_impl(body: ContentBody, player: dict) -> tuple[dict, asyncio.Task
         question = clean_content(body.content, 200)
         room = await _room(body.room_id)
         _ensure_active(room)
+        await _ensure_player_can_play(body.room_id, player)
         if player.get("is_ai"):
             n = int(await get_setting("ai_cooldown_questions", "5"))
             seconds = int(await get_setting("ai_cooldown_seconds", "3"))
@@ -319,6 +344,7 @@ async def guess(body: GuessBody, player: dict = Depends(current_player)):
     guess_text = clean_content(body.content, 1000)
     room = await _room(body.room_id)
     _ensure_active(room)
+    await _ensure_player_can_play(body.room_id, player)
     try:
         result = await judge.judge_guess(room["surface"], room["answer"], guess_text)
     except HTTPException as exc:
@@ -380,10 +406,30 @@ async def guess(body: GuessBody, player: dict = Depends(current_player)):
     return payload | {"correct": correct, "score": score, "result_log": result_payload}
 
 
+@router.post("/reveal-answer")
+async def reveal_answer(body: RevealAnswerBody, player: dict = Depends(current_player)):
+    room = await _room(body.room_id)
+    _ensure_active(room)
+    if not body.confirm_reveal:
+        return {
+            "confirmation_required": True,
+            "answer_revealed": False,
+            "message": "查看汤底需要再次确认。确认后你会立即看到完整汤底；房间不会结束，其他玩家可以继续推理，但你不能再参与本局答题、请求提示或操作记事板。若确认，请再次调用并传 confirm_reveal=true。",
+        }
+    reveal_answer_text = judge.public_answer_from_full_answer(room["answer"])
+    await execute(
+        "INSERT OR IGNORE INTO room_answer_reveals (room_id, player_id) VALUES (?, ?)",
+        (body.room_id, player["id"]),
+    )
+    await touch_room(body.room_id, player["id"])
+    return {"answer": reveal_answer_text, "answer_revealed": True}
+
+
 @router.post("/hint/request")
 async def hint_request(body: HintRequestBody, player: dict = Depends(current_player)):
     room = await _room(body.room_id)
     _ensure_active(room)
+    await _ensure_player_can_play(body.room_id, player)
     ask_count = await _ask_count(body.room_id)
     payload = await _offer_hint(room, ask_count, manual=True, player=player)
     if payload is None:
@@ -427,4 +473,5 @@ async def public_settings(player: dict = Depends(current_player)):
     del player
     return {
         "generate_cooldown_seconds": int(await get_setting("generate_cooldown_seconds", "5")),
+        "answer_reveal_prompt_count": int(await get_setting("answer_reveal_prompt_count", "100")),
     }

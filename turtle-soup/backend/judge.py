@@ -724,12 +724,12 @@ async def generate_hint(surface: str, answer: str, game_log: list[dict[str, Any]
         max_retry=5,
         log_label="generate_hint",
         timeout=12,
-        max_tokens=180,
+        max_tokens=256,
         pool="hint",
     )
     if text is None:
         return None
-    return text.strip()[len("【提示】") :].strip()[:120]
+    return text.strip()[len("【提示】") :].strip()
 
 
 def _valid_hint_response(value: str) -> bool:
@@ -737,11 +737,17 @@ def _valid_hint_response(value: str) -> bool:
     if not text.startswith("【提示】"):
         return False
     hint = text[len("【提示】") :].strip()
-    if len(hint) < 6:
+    if len(hint) < 7:
+        return False
+    if len(hint) > 120:
         return False
     if "【线索公布】" in hint:
         return False
-    dangling_suffixes = ("的", "了", "是", "在", "和", "与", "把", "被", "从", "向", "对", "将", "让", "但", "而")
+    dangling_suffixes = (
+        "的", "了", "是", "在", "和", "与", "把", "被", "从", "向", "对", "将", "让",
+        "但", "而", "要", "会", "能", "到", "给", "用", "为", "去", "来", "着", "得",
+        "地", "之", "其", "所", "以", "及", "或", "且", "因", "由", "于", "中", "里",
+    )
     return not hint.endswith(dangling_suffixes)
 
 

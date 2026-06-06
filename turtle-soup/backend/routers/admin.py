@@ -402,7 +402,17 @@ async def delete_report(report_id: int, admin: dict = Depends(admin_player)):
 @router.get("/flags")
 async def flags(admin: dict = Depends(admin_player)):
     del admin
-    return await fetch_all("SELECT * FROM flagged_content ORDER BY id DESC")
+    rows = await fetch_all("SELECT * FROM flagged_content ORDER BY id DESC")
+    for row in rows:
+        if row.get("type") == "username":
+            player = await fetch_one("SELECT username FROM players WHERE id = ?", (row["ref_id"],))
+            row["content"] = player["username"] if player else "(已删除)"
+        elif row.get("type") == "submission":
+            sub = await fetch_one("SELECT surface, answer FROM puzzle_submissions WHERE id = ?", (row["ref_id"],))
+            row["content"] = f"{sub['surface']}\n【答案】{sub['answer']}" if sub else "(已删除)"
+        else:
+            row["content"] = ""
+    return rows
 
 
 @router.post("/flags")

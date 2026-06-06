@@ -10,14 +10,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from auth_utils import hash_password
-from database import execute, fetch_all, fetch_one, get_db
-from models import ContentBody, GuessBody, HintRequestBody, HintResponseBody, NoteBody, RoomCreateBody
+from database import execute, fetch_all, fetch_one, get_db, get_setting
+from models import ContentBody, GuessBody, HintRequestBody, HintResponseBody, NoteBody, RevealAnswerBody, RoomCreateBody
 from routers.game import ask as game_ask
 from routers.game import _ask_impl
 from routers.game import generate as game_generate
 from routers.game import guess as game_guess
 from routers.game import hint_request as game_hint_request
-from routers.game import hint_respond as game_hint_respond
+from routers.game import reveal_answer as game_reveal_answer
 from routers.notes import add_note, delete_note, update_note
 from routers.rooms import close_room, create_room
 from utils import ANSWER_LIMIT, ROOM_FINISHED_STATUS_HINT, SQL_NOW, SURFACE_LIMIT, TAGS_LIMIT, TITLE_LIMIT, clean_content
@@ -46,6 +46,12 @@ class PlayBody(BaseModel):
     log_id: int | None = None
     log_limit: int | None = None
     accept: bool | None = None
+    auto_hint_log_id: int | None = None
+    accept_auto_hint: bool | None = None
+    accept_auto_hint_log_id: int | None = None
+    reject_auto_hint_log_id: int | None = None
+    confirm_reveal: bool | None = None
+    confirm: bool | None = None
 
 
 @router.post("/play")
@@ -99,7 +105,8 @@ async def play(body: PlayBody):
     if body.action == "status":
         if not body.room_id:
             raise HTTPException(status_code=400, detail="room_id 必填")
-        return await _room_context(body.room_id, body.log_limit)
+        player = await _mcp_player(body.path_token) if body.path_token else None
+        return await _room_context(body.room_id, body.log_limit, player)
     if body.action == "register":
         return await _register_toy_user(body.username, body.password)
     if body.action == "join":
@@ -130,7 +137,7 @@ async def play(body: PlayBody):
             FROM room_notes rn
             LEFT JOIN players p ON p.id = rn.player_id
             WHERE rn.room_id = ?
-            ORDER BY rn.updated_at DESC
+            ORDER BY rn.updated_at ASC
             """,
             (body.room_id,),
         )
@@ -161,24 +168,38 @@ async def play(body: PlayBody):
             raise HTTPException(status_code=400, detail="room_id 必填")
         return await close_room(body.room_id, player)
     if body.action == "ask":
-        if not body.room_id or not body.content:
-            raise HTTPException(status_code=400, detail="room_id 和 content 必填")
+        if not body.room_id:
+            raise HTTPException(status_code=400, detail="room_id 必填")
+        if body.confirm_reveal:
+            return await game_reveal_answer(
+                RevealAnswerBody(room_id=body.room_id, confirm_reveal=True),
+                player,
+            )
+        if not body.content:
+            raise HTTPException(status_code=400, detail="content 必填")
         room = await fetch_one("SELECT status FROM rooms WHERE id = ?", (body.room_id,))
         if not room:
             raise HTTPException(status_code=404, detail="房间不存在")
         if room["status"] == "finished":
             raise HTTPException(status_code=400, detail=ROOM_FINISHED_STATUS_HINT)
+        auto_hint_decision = await _auto_hint_decision_from_ask(body, player)
         previous_own_log = await _previous_own_public_log(body.room_id, player["id"])
         payload, hint_task = await _ask_impl(ContentBody(room_id=body.room_id, content=clean_content(body.content, 200)), player)
+        if auto_hint_decision is not None:
+            payload["auto_hint_decision"] = auto_hint_decision
         hint_result = await hint_task
         if hint_result:
-            payload["auto_hint"] = hint_result
+            payload["auto_hint"] = _masked_auto_hint_prompt(hint_result["log_id"])
+        prompt = await _answer_reveal_prompt(body.room_id)
+        if prompt:
+            payload["answer_reveal_prompt"] = prompt
         payload["room"] = await _public_room(body.room_id)
         payload["logs_since_last_own_action"] = await _room_logs_after(
             body.room_id,
             previous_own_log["id"] if previous_own_log else None,
             None,
             current_log_id=payload.get("id"),
+            player_id=player["id"],
         )
         return payload
     if body.action == "guess":
@@ -191,16 +212,16 @@ async def play(body: PlayBody):
             raise HTTPException(status_code=400, detail=ROOM_FINISHED_STATUS_HINT)
         return await game_guess(GuessBody(room_id=body.room_id, content=clean_content(body.content, 1000)), player)
     if body.action == "hint_respond":
-        if not body.room_id or body.log_id is None or body.accept is None:
-            raise HTTPException(status_code=400, detail="room_id、log_id、accept 必填")
-        return await game_hint_respond(
-            HintResponseBody(room_id=body.room_id, log_id=body.log_id, accept=body.accept),
-            player,
-        )
+        raise HTTPException(status_code=400, detail="自动提示请在下一次 ask 中传 auto_hint_log_id 和 accept_auto_hint=true/false 处理")
     if body.action == "hint_request":
         if not body.room_id:
             raise HTTPException(status_code=400, detail="room_id 必填")
-        return await game_hint_request(HintRequestBody(room_id=body.room_id), player)
+        return await game_hint_request(
+            HintRequestBody(room_id=body.room_id, confirm_hint=bool(body.confirm_hint or body.confirm)),
+            player,
+        )
+    if body.action == "reveal_answer":
+        raise HTTPException(status_code=400, detail="查看汤底确认请在下一次 ask 中传 confirm_reveal=true 处理")
     if body.action == "note_add":
         if not body.room_id or not body.content:
             raise HTTPException(status_code=400, detail="room_id 和 content 必填")
@@ -233,8 +254,34 @@ async def _public_room(room_id: str) -> dict:
     return room
 
 
-async def _room_context(room_id: str, log_limit: int | None = None) -> dict:
-    return {"room": await _public_room(room_id), "logs": await _room_logs_after(room_id, None, log_limit, latest_limit=True)}
+async def _room_context(room_id: str, log_limit: int | None = None, player: dict | None = None) -> dict:
+    data = {
+        "room": await _public_room(room_id),
+        "logs": await _room_logs_after(room_id, None, log_limit, latest_limit=True, player_id=player["id"] if player else None),
+    }
+    prompt = await _answer_reveal_prompt(room_id)
+    if prompt:
+        data["answer_reveal_prompt"] = prompt
+    return data
+
+
+async def _answer_reveal_prompt(room_id: str) -> dict | None:
+    room = await fetch_one("SELECT status FROM rooms WHERE id = ?", (room_id,))
+    if not room or room["status"] == "finished":
+        return None
+    trigger = int(await get_setting("answer_reveal_prompt_count", "100"))
+    if trigger <= 0:
+        return None
+    row = await fetch_one("SELECT COUNT(*) AS c FROM game_logs WHERE room_id = ? AND type = 'ask'", (room_id,))
+    ask_count = int(row["c"] if row else 0)
+    if ask_count <= 0 or ask_count % trigger != 0:
+        return None
+    return {
+        "ask_count": ask_count,
+        "message": f"本房间已经累计 {ask_count} 次提问。若用户确认查看汤底，请在下一次 ask 中传 confirm_reveal=true；房间不会结束，但你查看后不能继续 ask/guess/hint_request 或操作记事本。本次确认不要调用其它 action。",
+        "requires_confirmation": True,
+        "next_ask_confirm_parameters": {"confirm_reveal": True},
+    }
 
 
 async def _previous_own_public_log(room_id: str, player_id: int) -> dict | None:
@@ -258,6 +305,7 @@ async def _room_logs_after(
     log_limit: int | None = None,
     current_log_id: int | None = None,
     latest_limit: bool = False,
+    player_id: int | None = None,
 ) -> list[dict]:
     if log_limit is not None and log_limit < 0:
         raise HTTPException(status_code=400, detail="log_limit 不能为负数")
@@ -308,7 +356,78 @@ async def _room_logs_after(
     if current_log_id is not None:
         for row in rows:
             row["is_current_ask_result"] = int(row["id"]) == int(current_log_id)
+    await _mask_auto_hints_for_mcp(rows, player_id)
     return rows
+
+
+def _masked_auto_hint_prompt(log_id: int) -> dict:
+    return {
+        "log_id": log_id,
+        "confirmation_required": True,
+        "message": "收到一条自动提示，是否查看？请在下一次 ask 里带 auto_hint_log_id 和 accept_auto_hint=true/false；不要调用其它 action。",
+        "next_ask_confirm_parameters": {"auto_hint_log_id": log_id, "accept_auto_hint": True},
+        "next_ask_reject_parameters": {"auto_hint_log_id": log_id, "accept_auto_hint": False},
+    }
+
+
+async def _mask_auto_hints_for_mcp(rows: list[dict], player_id: int | None) -> None:
+    auto_ids = [
+        int(row["id"]) for row in rows
+        if row.get("type") == "auto_hint" or row.get("judgment") == "auto_hint"
+    ]
+    if not auto_ids:
+        return
+    accepted: set[int] = set()
+    rejected: set[int] = set()
+    if player_id is not None:
+        placeholders = ",".join("?" for _ in auto_ids)
+        decisions = await fetch_all(
+            f"SELECT log_id, accepted FROM room_hint_views WHERE player_id = ? AND log_id IN ({placeholders})",
+            (player_id, *auto_ids),
+        )
+        accepted = {int(row["log_id"]) for row in decisions if int(row.get("accepted") or 0) == 1}
+        rejected = {int(row["log_id"]) for row in decisions if int(row.get("accepted") or 0) != 1}
+    for row in rows:
+        if row.get("type") != "auto_hint" and row.get("judgment") != "auto_hint":
+            continue
+        log_id = int(row["id"])
+        if log_id in accepted:
+            row["auto_hint_accepted"] = True
+            continue
+        row["hint_text"] = None
+        row["content"] = "收到一条自动提示，是否查看？"
+        row["auto_hint_confirmation_required"] = True
+        row["next_ask_confirm_parameters"] = {"auto_hint_log_id": log_id, "accept_auto_hint": True}
+        row["next_ask_reject_parameters"] = {"auto_hint_log_id": log_id, "accept_auto_hint": False}
+        if log_id in rejected:
+            row["auto_hint_rejected"] = True
+
+
+async def _auto_hint_decision_from_ask(body: PlayBody, player: dict) -> dict | None:
+    log_id = body.auto_hint_log_id or body.accept_auto_hint_log_id or body.reject_auto_hint_log_id
+    if log_id is None:
+        return None
+    accept = False if body.reject_auto_hint_log_id is not None else bool(body.accept_auto_hint if body.accept_auto_hint is not None else True)
+    decision = await _respond_auto_hint(body.room_id, log_id, accept, player)
+    if decision is None:
+        raise HTTPException(status_code=404, detail="自动提示不存在")
+    return decision
+
+
+async def _respond_auto_hint(room_id: str, log_id: int, accept: bool, player: dict) -> dict | None:
+    hint = await fetch_one(
+        "SELECT * FROM game_logs WHERE id = ? AND room_id = ? AND (type = 'auto_hint' OR judgment = 'auto_hint')",
+        (log_id, room_id),
+    )
+    if not hint:
+        return None
+    await execute(
+        "INSERT OR REPLACE INTO room_hint_views (log_id, player_id, accepted) VALUES (?, ?, ?)",
+        (log_id, player["id"], 1 if accept else 0),
+    )
+    if not accept:
+        return {"log_id": log_id, "accept": False, "message": "已拒绝查看这条自动提示。"}
+    return {"log_id": log_id, "accept": True, "hint_text": hint.get("hint_text") or hint.get("content")}
 
 
 async def _mcp_player(path_token: str | None) -> dict:
@@ -318,8 +437,49 @@ async def _mcp_player(path_token: str | None) -> dict:
             return await get_player_from_token(db, path_token)
         finally:
             await db.close()
-    pid = await execute("INSERT INTO players (is_guest, is_ai, source) VALUES (1, 1, 'mcp')")
-    return await fetch_one("SELECT * FROM players WHERE id = ?", (pid,))
+    # 分配游客编号（1-999），与网页游客共用编号池
+    db = await get_db()
+    try:
+        GUEST_NUMBER_MAX = 999
+        GUEST_NEXT_NUMBER_KEY = "guest_next_number"
+        await db.execute("BEGIN IMMEDIATE")
+        await db.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, '1')",
+            (GUEST_NEXT_NUMBER_KEY,),
+        )
+        row = await db.execute_fetchall(
+            "SELECT value FROM settings WHERE key = ?",
+            (GUEST_NEXT_NUMBER_KEY,),
+        )
+        try:
+            start = int(row[0]["value"]) if row else 1
+        except Exception:
+            start = 1
+        start = ((start - 1) % GUEST_NUMBER_MAX) + 1
+        for offset in range(GUEST_NUMBER_MAX):
+            number = ((start - 1 + offset) % GUEST_NUMBER_MAX) + 1
+            username = f"游客{number}"
+            existing = await db.execute_fetchall(
+                "SELECT id FROM players WHERE username = ?",
+                (username,),
+            )
+            if existing:
+                continue
+            cur = await db.execute(
+                "INSERT INTO players (username, is_guest, is_ai, source) VALUES (?, 1, 1, 'mcp')",
+                (username,),
+            )
+            next_number = (number % GUEST_NUMBER_MAX) + 1
+            await db.execute(
+                "UPDATE settings SET value = ? WHERE key = ?",
+                (str(next_number), GUEST_NEXT_NUMBER_KEY),
+            )
+            await db.commit()
+            player_id = int(cur.lastrowid)
+            return dict((await db.execute_fetchall("SELECT * FROM players WHERE id = ?", (player_id,)))[0])
+        raise HTTPException(status_code=503, detail="游客编号已用完")
+    finally:
+        await db.close()
 
 
 async def get_player_from_token(db, path_token: str | None):

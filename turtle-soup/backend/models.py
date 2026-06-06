@@ -38,6 +38,12 @@ class GuessBody(BaseModel):
 
 class HintRequestBody(BaseModel):
     room_id: str
+    confirm_hint: bool = False
+
+
+class RevealAnswerBody(BaseModel):
+    room_id: str
+    confirm_reveal: bool = False
 
 
 class HintResponseBody(BaseModel):

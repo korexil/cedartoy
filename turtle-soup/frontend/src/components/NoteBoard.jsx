@@ -2,18 +2,18 @@ import { useState } from 'react'
 import { del, post, put } from '../api'
 import { noteAuthor } from '../utils/display.js'
 
-function prependNoteOnce(items, note) {
-  return items.some((item) => Number(item.id) === Number(note.id)) ? items : [note, ...items]
+function appendNoteOnce(items, note) {
+  return items.some((item) => Number(item.id) === Number(note.id)) ? items : [...items, note]
 }
 
-export default function NoteBoard({ roomId, notes, setNotes, currentPlayer }) {
+export default function NoteBoard({ roomId, notes, setNotes, currentPlayer, disabled = false, disabledLabel = '游戏已结束' }) {
   const [content, setContent] = useState('')
 
   const addNote = async () => {
     const text = content.trim()
-    if (!text) return
+    if (!text || disabled) return
     const note = await post(`/notes/${roomId}`, { content: text })
-    setNotes((items) => prependNoteOnce(items, note))
+    setNotes((items) => appendNoteOnce(items, note))
     setContent('')
   }
 
@@ -23,6 +23,7 @@ export default function NoteBoard({ roomId, notes, setNotes, currentPlayer }) {
   }
 
   const edit = async (note) => {
+    if (disabled) return
     const next = prompt('修改笔记', note.content)
     if (!next?.trim()) return
     const updated = await put(`/notes/${note.id}`, { content: next.trim() })
@@ -44,7 +45,7 @@ export default function NoteBoard({ roomId, notes, setNotes, currentPlayer }) {
                 <p>{note.content}</p>
                 <footer>
                   <small>{noteAuthor(note)}</small>
-                  {Number(note.player_id) === Number(currentPlayer?.id) && (
+                  {Number(note.player_id) === Number(currentPlayer?.id) && !disabled && (
                     <div>
                       <button type="button" onClick={() => edit(note)}>改</button>
                       <button type="button" onClick={() => remove(note.id)}>删</button>
@@ -63,6 +64,7 @@ export default function NoteBoard({ roomId, notes, setNotes, currentPlayer }) {
           className="notepad-input"
           maxLength={50}
           value={content}
+          disabled={disabled}
           onChange={(event) => setContent(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -70,10 +72,10 @@ export default function NoteBoard({ roomId, notes, setNotes, currentPlayer }) {
               addNote()
             }
           }}
-          placeholder="记录推理线索…"
+          placeholder={disabled ? disabledLabel : '记录推理线索…'}
           aria-label="笔记内容"
         />
-        <button type="button" className="pixel-primary" disabled={!content.trim()} onClick={addNote}>
+        <button type="button" className="pixel-primary" disabled={disabled || !content.trim()} onClick={addNote}>
           添加
         </button>
       </div>

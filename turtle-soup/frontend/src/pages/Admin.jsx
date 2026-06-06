@@ -47,6 +47,7 @@ const fieldLabels = {
   target_player_id: '被举报人',
   room_id: '房间',
   log_id: '记录',
+  content: '关联内容',
   reason: '原因',
   type: '类型',
   ref_id: '对象 ID',
@@ -79,6 +80,7 @@ const tabDescriptions = {
 const settingDescriptions = {
   max_rooms: '大厅允许同时保留的活跃房间数量上限。',
   hint_trigger_count: '距上次自动提示尝试或成功后再 ask 多少条触发自动提示。',
+  answer_reveal_prompt_count: '距上次公布汤底确认弹窗后再 ask 多少条触发一次；默认 100。',
   ai_cooldown_questions: 'AI 裁判相关操作按提问数计算的冷却间隔。',
   ai_cooldown_seconds: 'AI 裁判请求之间的最短秒级间隔。',
   generate_cooldown_seconds: 'AI 生成题目的按钮冷却秒数。',
@@ -111,7 +113,7 @@ const columns = {
   rooms: ['id', 'surface', 'answer', 'status', 'created_by', 'winner_id', 'created_at', 'finished_at'],
   bans: ['id', 'ip', 'reason', 'banned_by', 'created_at'],
   reports: ['id', 'reporter_id', 'target_player_id', 'room_id', 'log_id', 'reason', 'status', 'created_at'],
-  flags: ['id', 'type', 'ref_id', 'reason', 'status', 'created_at'],
+  flags: ['id', 'type', 'ref_id', 'content', 'reason', 'status', 'created_at'],
   'api-configs': ['id', 'name', 'api_url', 'api_key', 'model', 'purpose', 'enabled', 'priority', 'created_at'],
   settings: ['key', 'value', 'description'],
 }

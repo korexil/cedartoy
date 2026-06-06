@@ -123,7 +123,7 @@ export default function AddPuzzle() {
       </div>
 
       <form className="panel add-puzzle-form" onSubmit={submit}>
-        <h3>{editingId ? `编辑题目 #${editingId}` : '新增题目'}</h3>
+        <h3>{editingId ? `编辑题目 #${puzzles.findIndex((p) => p.id === editingId) + 1}` : '新增题目'}</h3>
         <label>
           汤名（可选）
           <input
@@ -183,10 +183,10 @@ export default function AddPuzzle() {
           <p className="muted">暂无题目或无权查看。</p>
         ) : (
           <ol className="puzzle-bank-list">
-            {puzzles.map((item) => (
+            {puzzles.map((item, i) => (
               <li key={item.id}>
                 <div className="puzzle-bank-head">
-                  <span className="puzzle-id">#{item.id}</span>
+                  <span className="puzzle-id">#{i + 1}</span>
                   <span className={item.enabled ? 'enabled' : 'disabled'}>
                     {item.enabled ? '启用' : '禁用'}
                   </span>

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from auth_utils import current_player
 from database import execute, fetch_all, fetch_one, get_setting
-from judge import scan_text
+from judge import public_answer_from_full_answer, scan_text
 from models import RoomCreateBody
 from utils import ANSWER_LIMIT, SURFACE_LIMIT, TITLE_LIMIT, SQL_NOW, clean_content, public_player, room_id
 
@@ -74,7 +74,7 @@ async def create_room(body: RoomCreateBody, player: dict = Depends(current_playe
         title = puzzle["title"]
         surface, answer = puzzle["surface"], puzzle["answer"]
     else:
-        title = clean_content(body.title or "", TITLE_LIMIT)
+        title = (body.title or "").strip()[:TITLE_LIMIT]
         surface = clean_content(body.surface or "", SURFACE_LIMIT)
         answer = clean_content(body.answer or "", ANSWER_LIMIT)
         if body.mode == "custom":
@@ -133,7 +133,7 @@ async def get_room(room_id: str, player: dict = Depends(current_player)):
         """
         SELECT rn.*, p.username, p.is_guest FROM room_notes rn
         LEFT JOIN players p ON p.id = rn.player_id
-        WHERE rn.room_id = ? ORDER BY rn.updated_at DESC
+        WHERE rn.room_id = ? ORDER BY rn.updated_at ASC
         """,
         (room_id,),
     )
@@ -146,6 +146,14 @@ async def get_room(room_id: str, player: dict = Depends(current_player)):
     )
     data = _public_room(room)
     data["manual_hint_count"] = int(manual_hint_row["c"] if manual_hint_row else 0)
+    data["ask_count"] = len([log for log in logs if log["type"] == "ask"])
+    reveal_row = await fetch_one(
+        "SELECT 1 FROM room_answer_reveals WHERE room_id = ? AND player_id = ?",
+        (room_id, player["id"]),
+    )
+    data["answer_revealed"] = reveal_row is not None
+    if reveal_row is not None:
+        data["revealed_answer"] = public_answer_from_full_answer(room["answer"])
     data["logs"] = logs
     data["notes"] = notes
     return data
