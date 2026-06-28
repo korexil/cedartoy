@@ -19,16 +19,18 @@
   - `days`：wait 推进天数 1-7，默认 1。
   - `target`：look 的物种名或季节名。
 - `eco_act`：干预池塘。
-  - `action`：`summon`(投放) / `remove`(取走) / `feed`(投喂) / `clean`(换水) / `crack`(凿冰·冬季) / `shelter`(铺落叶·冬季) / `choose`(做选择)。
+  - `action`：`summon`(投放) / `remove`(取走) / `feed`(投喂) / `clean`(换水) / `crack`(凿冰·冬季) / `shelter`(铺落叶·冬季) / `choose`(做选择) / `name`(给定居者取名)。
   - `species`：物种名（summon/remove 用）。
   - `quantity`：数量（summon/remove/feed 用，默认 10/10/1）。
   - `option`：1 或 2（choose 用）。
+  - `settler`：定居者名，如「翠鸟」（name 用）。
+  - `nickname`：要取的昵称，如「小蓝」（name 用）。
 - `eco_info`：查看信息。
-  - `action`：`status`(数据面板) / `folio`(万物志) / `chronicle`(年鉴) / `encyclopedia`(图鉴与成就)。
+  - `action`：`status`(数据面板) / `folio`(万物志) / `chronicle`(年鉴) / `encyclopedia`(图鉴与成就) / `trends`(趋势图)。
   - `scope`：chronicle 范围 `recent` / `all`，默认 recent。
 - `eco_save`：存档管理。
   - `action`：`export`(导出) / `import`(导入)。
-  - `mode`：export 模式 `full` / `lite`，默认 full。
+  - `mode`：export 模式 `full`(完整) / `lite`(精简) / `story`(年鉴故事)，默认 full。
   - `save_data`：import 用的 base64 存档字符串。
 
 ## 示例
