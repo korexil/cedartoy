@@ -15,5 +15,6 @@ toy_index.html
 example/*
 *.db-journal
 
-# 瓶中生态引擎是独立仓库（Zizuixixiang/cedareco），单独 git pull 维护，不纳入本仓库
+# 瓶中生态引擎是独立仓库（Zizuixixiang/cedareco）的 clone，单独 git pull 维护，不纳入本仓库。
+# cedartoy 自有的 MCP 适配层在 eco_adapter/（纳入版本控制），通过命名空间包 import eco.engine。
 eco/

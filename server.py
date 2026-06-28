@@ -24,7 +24,7 @@ except ImportError:
 
 from bdsmtest.handler import handle_mcp as handle_bdsmtest_mcp
 from dnd.handler import handle_mcp as handle_dnd_mcp
-from eco.handler import handle_mcp as handle_eco_mcp
+from eco_adapter.handler import handle_mcp as handle_eco_mcp
 from mbti.handler import handle_mcp as handle_mbti_mcp
 
 
