@@ -440,6 +440,7 @@ def _engine_new(seed):
 def _engine_run(state, command):
     """装载存档 -> 执行指令 -> 取回新存档；返回 (结果文字, 序列化存档)。"""
     with _ENGINE_LOCK:
+        engine._migrate(state)
         engine._STATE = state
         try:
             text = engine.cmd(command)
