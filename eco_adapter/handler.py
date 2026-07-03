@@ -109,7 +109,7 @@ TOOLS = [
                 },
                 "settler": {
                     "type": "string",
-                    "description": "定居者名，如「翠鸟」（name 用）。",
+                    "description": "定居者标识，格式为「[D-N] 物种名」，如「[D-5] 翠鸟」。[D-N] 见 status 显示。",
                 },
                 "nickname": {
                     "type": "string",
@@ -330,7 +330,7 @@ def eco_act(arguments):
         settler = arguments.get("settler")
         nickname = arguments.get("nickname")
         if not isinstance(settler, str) or not settler.strip():
-            raise JsonRpcError(-32602, "name 需要 settler（定居者名）。")
+            raise JsonRpcError(-32602, "name 需要 settler（格式：[D-N] 物种名，如 [D-5] 翠鸟）。")
         if not isinstance(nickname, str) or not nickname.strip():
             raise JsonRpcError(-32602, "name 需要 nickname（昵称）。")
         command = f"name {settler.strip()} {nickname.strip()}"
