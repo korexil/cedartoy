@@ -1259,7 +1259,7 @@
         stats: [["PUZZLE", "85%"], ["MYSTERY", "72%"]],
         footerIcons: ["◌", "□", "⚡"],
         tags: ["黑汤", "红汤", "本格"],
-        url: "/soup/",
+        url: "soup/",
         ranks: []
       },
       {
@@ -1280,7 +1280,7 @@
         stats: [["LOGIC", "78%"], ["INSTINCT", "90%"]],
         footerIcons: ["♧", "▥", "☆"],
         tags: ["16型人格", "科学性"],
-        url: "/mbti",
+        url: "mbti",
         ranks: []
       },
       {
@@ -1301,7 +1301,7 @@
         stats: [["ORDER", "60%"], ["CHAOS", "55%"]],
         footerIcons: ["⚔", "□", "⚖"],
         tags: ["守序/混乱", "善良/邪恶"],
-        url: "/dnd",
+        url: "dnd",
         ranks: []
       },
       {
@@ -1322,7 +1322,7 @@
         stats: [["USERS", "88%"], ["SYSTEM", "76%"]],
         footerIcons: ["⚙", "▣", "●"],
         tags: ["管理员", "总后台"],
-        url: "/admin",
+        url: "admin",
         ranks: []
       }
     ];
@@ -1375,7 +1375,7 @@
       }
       try {
         const soupToken = localStorage.getItem(SOUP_TOKEN_KEY) || "";
-        const res = await fetch("/soup/api/leaderboard/games", {
+        const res = await fetch("soup/api/leaderboard/games", {
           headers: soupToken ? {Authorization: `Bearer ${soupToken}`} : {}
         });
         if (!res.ok) throw new Error("leaderboard unavailable");
@@ -1561,8 +1561,8 @@
       area.innerHTML = `
         <span class="user-name">● ${me.user.username}</span>
         <span class="user-actions">
-          ${me.user.is_admin ? '<a class="pixel-btn secondary desktop-only" href="/admin">管理</a>' : ''}
-          ${me.user.is_admin ? '<a class="pixel-btn secondary mobile-only mobile-top-link" href="/admin">总管理</a>' : ''}
+          ${me.user.is_admin ? '<a class="pixel-btn secondary desktop-only" href="admin">管理</a>' : ''}
+          ${me.user.is_admin ? '<a class="pixel-btn secondary mobile-only mobile-top-link" href="admin">总管理</a>' : ''}
           <button class="pixel-btn secondary mobile-only mobile-logout-link" id="mobileLogoutBtn" type="button" aria-label="登出" title="登出">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
@@ -1602,7 +1602,7 @@
       content.innerHTML = `
         <p class="desc">用户：${me.user.username}</p>
         <ol class="rank-list">${bindings}</ol>
-        ${me.user.is_admin ? '<a class="pixel-btn secondary" href="/admin" style="margin-bottom:10px">管理后台</a>' : ''}
+        ${me.user.is_admin ? '<a class="pixel-btn secondary" href="admin" style="margin-bottom:10px">管理后台</a>' : ''}
         <button class="pixel-btn" id="mineBind" type="button">绑定</button>
         <button class="pixel-btn secondary" id="mineLogout" type="button" style="margin-top:10px">登出</button>
       `;
@@ -1629,7 +1629,7 @@
         return;
       }
       try {
-        const res = await fetch("/api/auth/me", {
+        const res = await fetch("api/auth/me", {
           headers: headers(false),
           signal: controller.signal,
         });
@@ -1672,7 +1672,7 @@
         return;
       }
       try {
-        const res = await fetch("/api/auth/login_or_register", {
+        const res = await fetch("api/auth/login_or_register", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({username, password})
@@ -1699,7 +1699,7 @@
         return;
       }
       try {
-        const res = await fetch("/api/auth/bind", {
+        const res = await fetch("api/auth/bind", {
           method: "POST",
           headers: headers(true),
           body: JSON.stringify({binding_token})
@@ -1717,7 +1717,7 @@
 
     async function unbindAccount(aiUserId) {
       try {
-        const res = await fetch("/api/auth/bind", {
+        const res = await fetch("api/auth/bind", {
           method: "DELETE",
           headers: headers(true),
           body: JSON.stringify({ai_user_id: Number(aiUserId)})
@@ -1745,7 +1745,7 @@
     async function loadRoomCount() {
       try {
         const soupToken = localStorage.getItem(SOUP_TOKEN_KEY) || "";
-        const res = await fetch("/soup/api/rooms/", {
+        const res = await fetch("soup/api/rooms/", {
           headers: soupToken ? {Authorization: `Bearer ${soupToken}`} : {}
         });
         if (!res.ok) throw new Error("rooms unavailable");
