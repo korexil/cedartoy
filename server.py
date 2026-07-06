@@ -28,12 +28,12 @@ from eco_adapter.handler import handle_mcp as handle_eco_mcp
 from mbti.handler import handle_mcp as handle_mbti_mcp
 
 
-HOST = "127.0.0.1"
-PORT = 8002
-MAX_WORKERS = 50
-QUEUE_TIMEOUT_SECONDS = 10
-SOUP_HOST = "127.0.0.1"
-SOUP_PORT = 8012
+HOST = os.getenv("CEDARTOY_HOST", "127.0.0.1")
+PORT = int(os.getenv("CEDARTOY_PORT", "8002"))
+MAX_WORKERS = int(os.getenv("CEDARTOY_MAX_WORKERS", "50"))
+QUEUE_TIMEOUT_SECONDS = int(os.getenv("CEDARTOY_QUEUE_TIMEOUT", "10"))
+SOUP_HOST = os.getenv("TURTLE_SOUP_HOST", "127.0.0.1")
+SOUP_PORT = int(os.getenv("TURTLE_SOUP_PORT", "8012"))
 SOUP_BASE = f"http://{SOUP_HOST}:{SOUP_PORT}"
 TOY_SECRET = os.getenv("TOY_SECRET", "change-me-before-production")
 JWT_ALGORITHM = "HS256"
